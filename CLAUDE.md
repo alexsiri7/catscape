@@ -54,3 +54,18 @@ Kitchen: vase onto red plates → pantry → catnip (double jump).
 Living Room: double jump to the switch → opens gate K on the Landing; gap up top-right → Office.
 Office: swat the fan off, climb cabinet + bookcase → thermostat (heating on).
 Study (through gate K): swat radiator valve → heat builds → hooman sweats, opens window → swat mosquito net 5× → jump out.
+
+## Invariants
+
+- Keep it a static site with no build step, no bundler, no npm dependencies and no backend (no Pages Functions), unless the owner says otherwise. Cloudflare Pages serves `public/` exactly as committed.
+- Only site files go in `public/`. Tests, CI, docs and tooling stay outside it, so they are never served. `tests/browser.mjs` checks that repo files return 404.
+- Keep the CSP in `public/_headers` working without `'unsafe-inline'`: no inline `<script>`, no inline `<style>` or `style="..."` attributes, and no `on*=` handlers in HTML. Setting `element.style.x` from JS is fine. The only external origins are Google Fonts (`fonts.googleapis.com` for CSS, `fonts.gstatic.com` for font files). A new origin, or any other header change, needs a matching `_headers` edit, and that edit needs the owner's review.
+- No asset files for sound or sprites: sprites are drawn in code and all sound is synthesised live with the Web Audio API.
+- Controls: keyboard plus the on-screen touch pad. Keep both working.
+- The test hook (`globalThis.__CATSCAPE_TEST__`) must stay inert unless a harness sets it before `game.js` loads.
+- Every map row is exactly 20 characters and every map 12 rows (see the map legend).
+- For any UI, rendering or page change, run `node tests/browser.mjs /tmp/catscape-shots` and look at `title.png`, `playing.png` and `hint.png`, not just the exit code.
+
+## Factory (Archon)
+
+This repo is worked on by the Archon factory (issue pickup, PR review, PR maintenance). PRs for issues that only the factory's automated screening vetted (`archon:auto-approved`) must pass the `unsafe-change` check (`.github/unsafe-change.yml`). It holds changes to CI, `CLAUDE.md`, `public/_headers`, `public/_redirects`, `functions/`, `tests/browser.mjs`, `tests/serve.mjs`, `package.json` scripts and new dependencies for the owner. Gameplay, `public/*.{html,js,css}` and `tests/smoke.cjs` pass. Add the `hold` label to park a PR.
