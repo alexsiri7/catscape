@@ -2,9 +2,9 @@
   "name": "catscape",
   "version": "1.0.0",
   "private": true,
-  "description": "Lyra's great escape: a pixel-art cat platformer in one HTML file",
+  "description": "Lyra's great escape: a pixel-art cat platformer, static files with no build step",
   "scripts": {
-    "test": "node tests/smoke.cjs",
-    "start": "python3 -m http.server 8000"
+    "test": "node tests/smoke.cjs && node tests/browser.mjs",
+    "start": "node tests/serve.mjs 8000"
   }
 }

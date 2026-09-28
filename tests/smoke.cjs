@@ -1,10 +1,9 @@
 // Headless smoke tests for Catscape.
-// Loads index.html's <script> in Node with stubbed DOM/canvas, then plays key routes.
+// Loads public/game.js in Node with stubbed DOM/canvas, then plays key routes.
 // Run: node tests/smoke.cjs
 const fs = require('fs'), path = require('path'), vm = require('vm'), assert = require('assert');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const src = html.match(/<script>([\s\S]*)<\/script>/)[1];
+const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'game.js'), 'utf8');
 
 const noop = () => {};
 const ctx = new Proxy({}, { get: (t, k) => k in t ? t[k] : (k === 'measureText' ? () => ({ width: 40 }) : noop), set: (t, k, v) => { t[k] = v; return true; } });

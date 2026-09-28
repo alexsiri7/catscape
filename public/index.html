@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Catscape: Lyra's great escape</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app">
+  <div id="topbar">
+    <h1>Catscape</h1>
+    <div class="tools">
+      <button id="btnHint" aria-label="What is Lyra thinking?">Hint</button>
+      <button id="btnFull" aria-label="Full screen" hidden>Full screen</button>
+      <button id="btnRestart" aria-label="Restart this room">Restart</button>
+      <button id="btnMute" aria-label="Toggle sound">Sound on</button>
+    </div>
+  </div>
+  <div id="stage"><canvas id="game" aria-label="Catscape game screen"></canvas></div>
+  <p id="keys">Arrows or WASD to move &nbsp; Up / Space to jump, climb and use doorways &nbsp; X to swat &nbsp; Down to drop or meow &nbsp; H for a hint &nbsp; R to restart</p>
+  <div id="pad">
+    <div class="grp">
+      <button data-k="left" aria-label="Left">◀</button>
+      <button data-k="down" aria-label="Down">▼</button>
+      <button data-k="right" aria-label="Right">▶</button>
+    </div>
+    <div class="grp">
+      <button data-k="paw" class="act" aria-label="Swat">SWAT</button>
+      <button data-k="jump" class="act big" aria-label="Jump">JUMP</button>
+    </div>
+  </div>
+</main>
+
+<script src="game.js"></script>
+</body>
+</html>
