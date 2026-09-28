@@ -1,10 +1,18 @@
 # Catscape — notes for Claude Code
 
-Single-file browser game: everything lives in `index.html` (HTML + CSS + one inline `<script>`). Keep it that way so it deploys to GitHub Pages with no build step. No external assets except Google Fonts (Press Start 2P for UI, VT323 for Lyra's thoughts).
+Static browser game with no build step, served as-is from `public/` by Cloudflare Pages (https://catscape.interstellarai.net):
 
-Always run `node tests/smoke.cjs` after changes. Add a scenario there when adding a puzzle.
+- `public/index.html`: markup only.
+- `public/game.js`: the whole game (the script layout below).
+- `public/style.css`: the styles.
+- `public/_headers`: the production security headers and CSP (Cloudflare Pages format).
+- `public/404.html`, `public/favicon.svg`.
 
-## Script layout (in order)
+Everything outside `public/` (tests, CI, this file) is never served. No external assets except Google Fonts (Press Start 2P for UI, VT323 for Lyra's thoughts).
+
+Always run `node tests/smoke.cjs` after changes. Add a scenario there when adding a puzzle. For any visual or page change also run `node tests/browser.mjs /tmp/catscape-shots` and look at the screenshots.
+
+## Script layout of `public/game.js` (in order)
 
 1. Canvas setup: the world draws into an off-screen 320×192 canvas (`ctx`), which is scaled onto the visible canvas (`dctx`). Text and Lyra's thought bubble are drawn afterwards on `dctx` at full resolution (`text()` queues, `flushText()` draws; `S` = scale).
 2. `ROOMS`: each room is a 20×12 tile map (16px tiles) plus a grid position `gx, gy`. Walking off the left/right edge goes to the neighbour at `gx±1`; an edge is passable where the wall column has `.`. Openings between neighbours must line up (same rows, same floor height).
