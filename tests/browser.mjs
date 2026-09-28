@@ -46,7 +46,7 @@ const chrome = spawn(chromeBin, [
 let ws;
 try {
   let target;
-  for (let i = 0; i < 50 && !target; i++) {
+  for (let i = 0; i < 150 && !target; i++) { // up to 30 s: a cold CI runner can be slow
     await sleep(200);
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
