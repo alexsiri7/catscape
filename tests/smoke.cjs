@@ -82,6 +82,60 @@ test('study: radiator -> hooman opens window -> net -> escape', () => {
   assert.equal(t.state, 'win');
 });
 
+test('hints: solving the blue plate moves the map target on, standing on it does not', () => {
+  t.enterRoom('bathroom', 1*16 + 2, 166, -1); step(10);
+  assert.equal(t.gateOpen.Y, true);         // Lyra on the plate opens the gate...
+  assert.equal(t.hint.step, 'Y');           // ...but that is not solving it
+  assert.equal(t.hint.room, 'bathroom');
+  assert.equal(t.hint.auto.solved, 0);
+  t.enterRoom('bathroom', 13*16+2, 166, -1); step(10);
+  t.press('left'); tap('jump'); step(30); tap('jump'); step(25); t.release('left');
+  hold('left', 60); hold('left', 8); step(20);
+  t.press('left'); tap('jump'); step(35); t.release('left');
+  tap('jump'); step(25); hold('left', 20); tap('paw'); step(90);
+  assert.equal(t.gateOpen.Y, true);
+  step(300);                                // the hint waits for room behind Lyra's other thoughts
+  assert.equal(t.hint.step, 'X');
+  assert.equal(t.hint.room, 'kitchen');
+  assert.equal(t.hint.auto.solved, 1);
+  assert.ok(t.thoughts.some(th => /kitchen/.test(th.text)), 'next-step thought names the kitchen');
+  t.enterRoom('hall', 160, 166, 1); step(5);
+  assert.equal(t.hint.room, 'kitchen');     // rooms without a puzzle point at the next step
+});
+
+test('hints: knocking the vase onto the red plates points at the pantry, then the next step', () => {
+  t.enterRoom('kitchen', 13*16 + 1, 134, -1); step(5);
+  assert.equal(t.hint.room, 'kitchen');
+  hold('left', 4); tap('paw'); step(90);
+  assert.equal(t.gateOpen.X, true);
+  step(300);
+  assert.equal(t.hint.room, 'kitchen');
+  assert.match(t.hint.text, /Gate iz open/);
+  assert.equal(t.hint.auto.solved, 1);
+  assert.ok(t.thoughts.some(th => th.text === t.hint.text), 'solved hint queued');
+  t.cheat.zoomies(); step(300);
+  assert.equal(t.hint.room, 'bathroom');    // next unsolved step: the blue plate upstairs
+  assert.equal(t.hint.auto.solved, 2);
+});
+
+test('hints: the idle hint fires once per step after a minute without progress', () => {
+  const IDLE = 3600;
+  step(IDLE - t.hint.idleT - 10);
+  assert.equal(t.hint.auto.idle, 0);
+  step(20);
+  assert.equal(t.hint.auto.idle, 1);
+  assert.ok(t.thoughts.some(th => th.text === t.hint.text), 'idle hint queued');
+  step(IDLE + 400);
+  assert.equal(t.hint.auto.idle, 1);
+  t.cheat.zoomies(); step(1);               // progress: a new step
+  assert.equal(t.hint.idleT, 1);
+  step(IDLE + 10);
+  assert.equal(t.hint.auto.idle, 2);
+  step(IDLE + 400);
+  assert.equal(t.hint.auto.idle, 2);
+  assert.equal(t.state, 'play');            // hints never pause the game
+});
+
 test('fuzz: random input in every room never throws', () => {
   t.cheat.zoomies();
   for (const id of t.ROOM_IDS) {
