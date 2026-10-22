@@ -146,40 +146,69 @@ const ROOMS = {
 const ROOM_IDS = Object.keys(ROOMS);
 const roomAt = (gx, gy) => ROOM_IDS.find(id => ROOMS[id].gx === gx && ROOMS[id].gy === gy);
 
+// The escape, step by step. A step is `ready` once it can be reached and `done`
+// once it is solved; plates only count when something heavy (not Lyra) holds them.
+// `where` is Lyra's thought pointing at the step's room from anywhere else.
+const STEPS = [
+  { key:'Y', room:'bathroom', ready: () => true, done: () => heldOpen('Y'),
+    where: "Dat blue plate in da bathroom, left of mah bedroom. Sumthin heavy has to sit on it." },
+  { key:'X', room:'kitchen', ready: () => true, done: () => hasZoomies || heldOpen('X'),
+    where: "Sumthin smells AMAZING in da kitchen, downstairs on da left. Behind a red gate." },
+  { key:'catnip', room:'kitchen', ready: () => gateOpen.X, done: () => hasZoomies,
+    where: "Da red gate in da kitchen iz open. Da amazing smell iz in dere!" },
+  { key:'K', room:'living', ready: () => hasZoomies, done: () => gateOpen.K,
+    where: "Dat light switch in da living room, downstairs on da right. Zoomies: ready." },
+  { key:'heat', room:'office', ready: () => hasZoomies && heldOpen('Y'), done: () => heatingOn || windowOpen,
+    where: "Hooman's office iz through da gap, top right of da living room. Da THERMOSTAT iz in dere." },
+  { key:'valve', room:'study', ready: () => gateOpen.K, done: () => valveOpen || windowOpen,
+    where: "Da study iz past da landing gate. Dat radiator by da door haz a valve..." },
+  { key:'window', room:'study', ready: () => valveOpen && heatingOn, done: () => windowOpen,
+    where: "Radiator iz toasty. Now wait in da study for hooman to get sweaty..." },
+  { key:'net', room:'study', ready: () => windowOpen, done: () => netDown,
+    where: "Hooman opened da study window! Bap da mosquito net until it falls!" },
+  { key:'out', room:'study', ready: () => netDown, done: () => false,
+    where: "Da net iz down. Up on da study window seat and OUT! (Zoomies help.)" },
+];
+function heldOpen(g){ return gateOpen[g] && ROOM_IDS.some(id => world[id].plates.some(pl => pl.g === g && pl.held)); }
+function nextStep(){ return STEPS.find(s => !s.done() && s.ready()) || STEPS[STEPS.length - 1]; }
+
+// Lyra's next-step thought for the room she is in, and the room it points to
+// (the top-bar map pulses that room). Rooms with their own unsolved puzzle point
+// at themselves; the rest point at the next step of the escape.
 function hintFor(id){
+  const s = nextStep(), go = { text: s.where, room: s.room };
+  const here = text => ({ text, room: id });
   switch (id) {
     case 'bathroom':
-      if (gateOpen.Y) return "Clunk! Da blue plate iz down. Sumwhere, a blue gate iz open now.";
-      return "Da bath iz full of WATER. *shudder* Dat blue plate over dere... and dat laundry basket could be a stepping stone.";
+      if (heldOpen('Y')) return go;
+      return here("Da bath iz full of WATER. *shudder* Dat blue plate over dere... and dat laundry basket could be a stepping stone.");
     case 'bedroom':
-      if (birdState === 'perched') return "BIRB. Dere iz a birb. (Move left or right to go.)";
-      return "Da big window iz in da study, where hooman sits. Study iz to da right, past da landing. (JUMP at tall furniture to grab the edge, JUMP again to climb.)";
+      if (birdState === 'perched') return here("BIRB. Dere iz a birb. (Move left or right to go.)");
+      return go;
     case 'landing':
-      if (gateOpen.K) return "Da gate iz open! Study iz RIGHT DERE.";
-      if (world.living.visited) return "Dat yellow light on da gate... same as da light switch in da living room. Hmmmm.";
-      return "Da stairs go down. (Stand in the doorway and press JUMP.) Dis dumb gate haz a little yellow light on it.";
-    case 'hall': return "Kitchen dat way, living room dis way. If I get stuck on da left, da box can be mah stairs.";
+    case 'hall':
+      return go;
     case 'kitchen':
-      if (hasZoomies) return "Catnip: got. Zoomies: ACTIVATED. Dere was a light switch waaay up high somewhere...";
-      if (gateOpen.X) return "Gate iz open. Da amazing smell iz in dere.";
-      if (seen.has('plateX')) return "Gate opens when sumthin heavy sits on da red plates. What iz heavy... and knockable... (Careful: dat hob gets HOT.)";
-      return "Sumthin smells AMAZING behind dat red gate. Dem red plates look sus. (Careful: dat hob gets HOT.)";
+      if (hasZoomies) return go;
+      if (gateOpen.X) return here("Gate iz open. Da amazing smell iz in dere.");
+      if (seen.has('plateX')) return here("Gate opens when sumthin heavy sits on da red plates. What iz heavy... and knockable... (Careful: dat hob gets HOT.)");
+      return here("Sumthin smells AMAZING behind dat red gate. Dem red plates look sus. (Careful: dat hob gets HOT.)");
     case 'living':
-      if (gateOpen.K) return "Switch iz flipped. Clunk upstairs! And dere's a gap way up on da right... hooman's office?";
-      if (hasZoomies) return "From da end of da sofa: jump, den JUMP again in da air to grab da tall cabinet. Den bap da switch. Avoid da Roomba.";
-      return "Dat switch iz waaay too high. I need da zoomies. And I am NOT touching da Roomba.";
+      if (!hasZoomies) return { text: "Dat switch iz waaay too high. I need da zoomies. Sumthin in da kitchen smells... zoomy. And I am NOT touching da Roomba.", room: 'kitchen' };
+      if (gateOpen.K) return go;
+      return here("From da end of da sofa: jump, den JUMP again in da air to grab da tall cabinet. Den bap da switch. Avoid da Roomba.");
     case 'office':
-      if (!gateOpen.Y) return "A blue gate. Blue like... dat plate in da bathroom, next to mah bedroom.";
-      if (heatingOn) return "Heating iz ON. Now to da study: dat radiator valve!";
-      return "Da THERMOSTAT iz on da wall, up top. Climb da cabinet and bookcase. Watch da wires and da cactus. Da fan can be bapped off.";
+      if (!gateOpen.Y) return { text: "A blue gate. Blue like... dat plate in da bathroom, next to mah bedroom.", room: 'bathroom' };
+      if (heatingOn) return go;
+      return here("Da THERMOSTAT iz on da wall, up top. Climb da cabinet and bookcase. Watch da wires and da cactus. Da fan can be bapped off.");
     case 'study':
-      if (netDown) return "Da net iz down. Up on da window seat and OUT! (Zoomies help.)";
-      if (windowOpen) return "Hooman opened da window! But dere's a mosquito net. Bap it until it falls!";
-      if (valveOpen && heatingOn) return "Radiator iz toasty. Now wait for hooman to get sweaty...";
-      if (valveOpen) return "Valve iz open but da radiator iz cold. Da heating iz off. Hooman keeps da thermostat in da office.";
-      return "Hooman opens da window when it gets hot in here. Dat radiator by da door haz a valve...";
+      if (netDown) return here("Da net iz down. Up on da window seat and OUT! (Zoomies help.)");
+      if (windowOpen) return here("Hooman opened da window! But dere's a mosquito net. Bap it until it falls!");
+      if (valveOpen && heatingOn) return here("Radiator iz toasty. Now wait for hooman to get sweaty...");
+      if (valveOpen) return { text: "Valve iz open but da radiator iz cold. Da heating iz off. Hooman keeps da thermostat in da office.", room: 'office' };
+      return here("Hooman opens da window when it gets hot in here. Dat radiator by da door haz a valve...");
   }
-  return '';
+  return { text: '', room: id };
 }
 
 /* ---------- World ---------- */
@@ -191,6 +220,7 @@ let frame = 0, cardT = 0, deadT = 0, exitT = 0, winT = 0, fadeT = 0;
 let thoughts = [], seen = new Set(), birdState = 'gone', birdT = 0;
 let heatingOn = false, valveOpen = false, heat = 0, windowOpen = false, winAnim = 0, netHits = 0, netDown = false, netFall = 0, netShake = 0;
 let deathMsg = '', winCatY = 118;
+let hintMask = '', hintPending = null, idleT = 0, idleSeen = new Set(), lastAutoF = -1e9, lastAutoText = '', autoCount = {};
 let particles = [];
 
 fishTotal = ROOM_IDS.reduce((n, id) => n + ROOMS[id].map.join('').split('f').length - 1, 0);
@@ -242,6 +272,7 @@ function enterRoom(id, px, py, facing){
   for (const g in gateAnim) gateAnim[g] = gateOpen[g] ? 1 : 0;
   const first = !cur.visited; cur.visited = true;
   roomThought(id, first);
+  if (first && hintFor(id).room === id) hintPending = 'entry';
 }
 
 function resetRoom(){
@@ -263,6 +294,7 @@ function newGame(){
   const s = world.bedroom.start;
   state = 'play'; birdState = 'perched'; birdT = 0;
   enterRoom('bedroom', s.x, s.y, 1);
+  resetHints();
   fadeT = 30;
   think("BIRB. Dere iz a birb. I must haz dat birb.", 260);
   think("(Move left or right to go get it.)", 400);
@@ -276,19 +308,46 @@ function think(txt, dur){
 }
 function thinkOnce(key, txt, dur){ if (seen.has(key)) return; seen.add(key); think(txt, dur); }
 function thinkNow(txt, dur){ thoughts = []; think(txt, dur); }
-function showHint(){ if (state === 'play' || state === 'dead') thinkNow(hintFor(cur.id)); }
+function showHint(){ if (state === 'play' || state === 'dead') { thinkNow(hintFor(cur.id).text); idleT = 0; } }
+
+// Automatic next-step hints: when a step is solved, on first entry to a room with
+// something to do, and after IDLE_T frames without progress (once per step).
+// They queue behind whatever Lyra is thinking, never pause, and are rate-limited.
+const IDLE_T = 60 * 60, AUTO_GAP = 10 * 60;
+const stepMask = () => STEPS.map(s => s.done() ? 1 : 0).join('');
+function resetHints(){
+  hintMask = stepMask(); hintPending = null; idleT = 0; idleSeen = new Set();
+  lastAutoF = -1e9; lastAutoText = ''; autoCount = { solved:0, entry:0, idle:0 };
+}
+function autoHint(reason){
+  const h = hintFor(cur.id);
+  if (!h.text || thoughts.some(t => t.text === h.text)) return;
+  if (reason !== 'idle' && h.text === lastAutoText) return;
+  if (reason === 'entry' && frame - lastAutoF < AUTO_GAP) return;
+  think(h.text); lastAutoF = frame; lastAutoText = h.text; autoCount[reason]++;
+}
+function updateHints(){
+  const mask = stepMask();
+  if (mask !== hintMask) {
+    if ([...mask].some((c, i) => c === '1' && hintMask[i] === '0')) hintPending = 'solved';
+    hintMask = mask; idleT = 0;
+  }
+  if (++idleT >= IDLE_T && !idleSeen.has(mask)) { idleSeen.add(mask); hintPending = 'idle'; }
+  // wait for room in the queue so the hint never pushes out what Lyra just thought
+  if (hintPending && thoughts.length < 3) { autoHint(hintPending); hintPending = null; }
+}
 function roomThought(id, first){
   if (id === 'landing') {
     if (gateOpen.K) thinkOnce('landingOpen', "Da gate iz open! Study iz RIGHT DERE.");
     else if (first) think("Da landing. Study iz past dat baby gate... which iz closed. HOOMANS.");
   } else if (id === 'hall' && first) think("Downstairs. Kitchen dat way, living room dis way.");
   else if (id === 'kitchen') {
-    if (first) think("Sniff sniff. Sumthin smells AMAZING behind dat red gate.");
+    if (first) think("Sniff sniff. Da kitchen. Mah favourite room.");
   } else if (id === 'living') {
     if (hasZoomies) thinkOnce('livingZ', "Now, wif dese zoomies... dat switch iz MINE.");
     else if (first) think("Da Roomba. Mah ancient nemesis. And a light switch, waaay up high.");
   } else if (id === 'study' && first) think("Hooman iz on da couch. Da big window iz closed. Hmm. How do I make hooman open it...");
-  else if (id === 'bathroom' && first) think("Da bathroom. Da bath iz full of WATER. *shudder*");
+  else if (id === 'bathroom' && first) think("Da bathroom. Everyfing smells like soap. Ew.");
   else if (id === 'office') {
     if (!gateOpen.Y) thinkOnce('officeGate', "Hooman's office! ...behind a blue gate. Blue like dat plate in da bathroom.");
     else thinkOnce('officeIn', "Hooman's office. Wires, a cactus, a fan... and da THERMOSTAT, up on da wall.");
@@ -585,7 +644,7 @@ function doPaw(){
     if (rectOv(r.x, r.y, r.w, r.h, { x:lv.tx*T+4, y:lv.ty*T+2, w:8, h:12 })) {
       leverOn = !leverOn; SFX.click(); hit = true;
       puff(lv.tx*T+8, lv.ty*T+6, 5, '#ffd35a', .6);
-      thinkNow(leverOn ? "Click! Sumthin went clunk upstairs." : "Click. Sumthin clunked upstairs again.");
+      thinkNow(leverOn ? "Click! Sumthin went clunk upstairs. Da yellow gate on da landing?" : "Click. Sumthin clunked upstairs again.");
     }
   }
   for (const fd of feeders) {
@@ -660,12 +719,13 @@ function updatePlates(silent){
   for (const pl of plates) {
     const top = (pl.ty + 1) * T, was = pl.down;
     pl.down = [player, ...objs].some(b => Math.abs(b.y + b.h - top) < 1 && b.x < pl.tx*T + 15 && b.x + b.w > pl.tx*T + 1);
+    pl.held = objs.some(b => Math.abs(b.y + b.h - top) < 1 && b.x < pl.tx*T + 15 && b.x + b.w > pl.tx*T + 1);
     if (pl.down && !was && !silent) {
       SFX.plate();
       const byPlayer = Math.abs(player.y + player.h - top) < 1 && player.x < pl.tx*T + 15 && player.x + player.w > pl.tx*T + 1;
       if (byPlayer && pl.g === 'X') thinkOnce('plateX', "Da gate opened when I stood here! ...and it closes when I get off. Needs sumthin heavy to sit on it.");
       if (byPlayer && pl.g === 'Y') thinkOnce('plateY', "A blue plate. Sumthin clunked... but it'll unclunk when I step off. Needs sumthin heavy.");
-      if (!byPlayer && pl.g === 'Y') thinkOnce('plateObjY', "Clunk! Heavy fing on da blue plate. Sumwhere in dis house, a blue gate just opened.");
+      if (!byPlayer && pl.g === 'Y') thinkOnce('plateObjY', "Clunk! Heavy fing on da blue plate. Dat blue gate in hooman's office must be open now.");
       else if (!byPlayer) thinkOnce('plateObj' + pl.g, "Heavy fings on plates keep da gates open. I iz genius.");
     }
     want[pl.g] = want[pl.g] || pl.down;
@@ -940,6 +1000,7 @@ function update(){
   } else if (state === 'play') {
     updateBird();
     updatePlay();
+    if (state === 'play') updateHints();
   } else if (state === 'dead') {
     if (--deadT <= 0) {
       const e = cur.entry;
@@ -1499,6 +1560,16 @@ function drawMinimap(x0, y0){
     ctx.fillStyle = id === cur.id ? '#f0a040' : (world[id].visited ? '#6a5a8a' : '#2a2238');
     ctx.fillRect(x, y, 8, 5);
   }
+  // the room the current hint points to pulses: a glowing frame (and fill, unless Lyra is in it)
+  const target = hintFor(cur.id).room, d = ROOMS[target];
+  if (!d) return;
+  const x = x0 + d.gx * 9, y = y0 + d.gy * 6;
+  ctx.globalAlpha = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(frame / 7));
+  ctx.fillStyle = '#fff3b0';
+  if (target !== cur.id) ctx.fillRect(x + 1, y + 1, 6, 3);
+  ctx.fillRect(x - 1, y - 1, 10, 1); ctx.fillRect(x - 1, y + 5, 10, 1);
+  ctx.fillRect(x - 1, y, 1, 5); ctx.fillRect(x + 8, y, 1, 5);
+  ctx.globalAlpha = 1;
 }
 function drawHUD(){
   ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0, 0, W, 13);
@@ -1670,6 +1741,7 @@ if (globalThis.__CATSCAPE_TEST__) {
     update, render, press, release, newGame, enterRoom, ROOM_IDS,
     get state(){ return state; }, get player(){ return player; }, get cur(){ return cur; },
     get objs(){ return objs; }, get gateOpen(){ return gateOpen; }, get thoughts(){ return thoughts; },
+    get hint(){ return { ...hintFor(cur.id), step: nextStep().key, auto: { ...autoCount }, idleT }; },
     get deaths(){ return deaths; }, get story(){ return { heatingOn, valveOpen, heat, windowOpen, netHits, netDown, human: cur && cur.human && cur.human.state }; },
     cheat: { zoomies(){ hasZoomies = true; }, gate(g, v){ gateOpen[g] = v; }, heating(v){ heatingOn = v; } },
   }));
