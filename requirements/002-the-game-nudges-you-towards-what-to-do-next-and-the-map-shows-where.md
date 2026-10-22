@@ -1,8 +1,8 @@
 ---
 created: '2026-10-22'
-github_issue: null
+github_issue: 4
 id: '002'
-status: draft
+status: idea
 title: The game nudges you towards what to do next, and the map shows where
 updated: '2026-10-22'
 ---
@@ -21,4 +21,4 @@ At the right moments, the game offers Lyra's thought about what to do next witho
 
 ## Issues
 
-_None yet._
+- #4 — Automatic next-step hints and target-room highlight on the map
