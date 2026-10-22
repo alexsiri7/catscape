@@ -1,8 +1,8 @@
 ---
 created: '2026-10-22'
-github_issue: null
+github_issue: 3
 id: '001'
-status: draft
+status: idea
 title: Touch controls sit where thumbs naturally rest and never cover the game
 updated: '2026-10-22'
 ---
@@ -23,4 +23,4 @@ On a phone, the touch controls feel like a normal handheld game.
 
 ## Issues
 
-_None yet._
+- #3 — Reposition touch controls: d-pad bottom-left, JUMP/SWAT bottom-right, never over the room
