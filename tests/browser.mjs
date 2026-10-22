@@ -154,6 +154,16 @@ try {
       if (b.l < 0 || b.t < 0 || b.r > width || b.b > height) problems.push(`${name}: ${b.k} button is off screen`);
     }
     if (c.r - c.l < 200) problems.push(`${name}: canvas is only ${c.r - c.l} CSS px wide`);
+    // Thumb layout (issue #3): d-pad bottom-left, actions bottom-right, JUMP nearest the corner.
+    const { left, right, down, paw, jump } = Object.fromEntries(pad.buttons.map((b) => [b.k, b]));
+    const midX = (b) => (b.l + b.r) / 2;
+    for (const b of [left, right, down]) if (midX(b) >= width / 2) problems.push(`${name}: ${b.k} button is not on the left half`);
+    for (const b of [paw, jump]) if (midX(b) <= width / 2) problems.push(`${name}: ${b.k} button is not on the right half`);
+    if (left.r > right.l || left.b <= right.t || left.t >= right.b) problems.push(`${name}: left and right buttons are not side by side`);
+    if (down.t < Math.max(left.b, right.b) || midX(down) < left.r || midX(down) > right.l) problems.push(`${name}: down button is not below, between left and right`);
+    if (jump.r - jump.l <= paw.r - paw.l) problems.push(`${name}: JUMP is not larger than SWAT`);
+    if (jump.r < paw.r || jump.b < paw.b) problems.push(`${name}: JUMP is not nearest the bottom-right corner`);
+    if (paw.b > jump.t && paw.r > jump.l) problems.push(`${name}: SWAT is not above or left of JUMP`);
   }
 
   console.log('page info:', JSON.stringify(info));
