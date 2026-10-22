@@ -3,7 +3,9 @@
 // Without a url it starts tests/serve.mjs (public/ + the _headers rules) on a free port.
 // With a url (e.g. a Cloudflare Pages preview) it tests that deployment instead.
 // Fails on: missing security headers, repo files being served, uncaught JS errors,
-// console errors, CSP violations, fonts or style.css not loading, or a blank canvas.
+// console errors, CSP violations, fonts or style.css not loading, a blank canvas,
+// or (on touch phones in portrait and landscape) a pad button that is under 56 CSS px
+// or overlaps the canvas.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -120,9 +122,40 @@ try {
   await key('h', 'KeyH');
   await sleep(600);
   await shot('hint.png');
+  // Each reload below starts a fresh window.__csp, so collect it per page.
+  const collectCsp = async () => { for (const v of (await evalJs('window.__csp')) || []) problems.push(`CSP violation: ${v}`); };
+  await collectCsp();
 
-  const csp = (await evalJs('window.__csp')) || [];
-  for (const v of csp) problems.push(`CSP violation: ${v}`);
+  const desktopPad = await evalJs(`getComputedStyle(document.getElementById('pad')).display`);
+  if (desktopPad !== 'none') problems.push(`touch pad shown without a touch screen (display ${desktopPad})`);
+
+  // 3. Touch phones: every pad button is big enough and none overlaps the canvas.
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  for (const [name, width, height] of [['portrait', 390, 844], ['portrait-small', 320, 568], ['landscape', 844, 390], ['landscape-small', 667, 375]]) {
+    const angle = width > height ? 90 : 0;
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: true,
+      screenOrientation: { type: angle ? 'landscapePrimary' : 'portraitPrimary', angle } });
+    await send('Emulation.resetPageScaleFactor');
+    await send('Page.reload');
+    await sleep(2000);
+    const pad = await evalJs(`(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return { k: el.dataset.k, l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+      return { canvas: box(document.getElementById('game')), buttons: [...document.querySelectorAll('#pad button')].map(box),
+        pageWidth: document.documentElement.scrollWidth };
+    })()`);
+    await shot(`touch-${name}.png`);
+    await collectCsp();
+    if (!pad) { problems.push(`${name}: could not measure the touch pad`); continue; }
+    if (pad.pageWidth > width) problems.push(`${name}: page is ${pad.pageWidth} CSS px wide, wider than the ${width} px screen`);
+    const c = pad.canvas;
+    for (const b of pad.buttons) {
+      if (b.r - b.l < 56 || b.b - b.t < 56) problems.push(`${name}: ${b.k} button is ${b.r - b.l}x${b.b - b.t}, under 56 CSS px`);
+      if (b.l < c.r && b.r > c.l && b.t < c.b && b.b > c.t) problems.push(`${name}: ${b.k} button overlaps the canvas`);
+      if (b.l < 0 || b.t < 0 || b.r > width || b.b > height) problems.push(`${name}: ${b.k} button is off screen`);
+    }
+    if (c.r - c.l < 200) problems.push(`${name}: canvas is only ${c.r - c.l} CSS px wide`);
+  }
+
   console.log('page info:', JSON.stringify(info));
   if (!info || !/^Catscape/.test(info.title)) problems.push(`page did not load (title ${info && info.title})`);
   if (!info || !info.w || info.colours < 3) problems.push('canvas is missing or blank');
@@ -140,5 +173,5 @@ if (problems.length) {
   console.error('FAIL\n' + problems.map((p) => '  - ' + p).join('\n'));
   process.exitCode = 1;
 } else {
-  console.log('OK: headers set, repo files not served, canvas rendered, fonts loaded, no JS errors or CSP violations');
+  console.log('OK: headers set, repo files not served, canvas rendered, fonts loaded, no JS errors or CSP violations, touch pad clear of the canvas');
 }
