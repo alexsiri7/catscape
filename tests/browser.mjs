@@ -164,6 +164,7 @@ try {
     if (jump.r - jump.l <= paw.r - paw.l) problems.push(`${name}: JUMP is not larger than SWAT`);
     if (jump.r < paw.r || jump.b < paw.b) problems.push(`${name}: JUMP is not nearest the bottom-right corner`);
     if (paw.b > jump.t && paw.r > jump.l) problems.push(`${name}: SWAT is not above or left of JUMP`);
+    for (const b of [down, jump]) if (height - b.b > 40) problems.push(`${name}: ${b.k} button is ${height - b.b} CSS px above the bottom of the screen`);
   }
 
   console.log('page info:', JSON.stringify(info));
