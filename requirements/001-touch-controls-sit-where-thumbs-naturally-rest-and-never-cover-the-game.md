@@ -2,9 +2,9 @@
 created: '2026-10-22'
 github_issue: 3
 id: '001'
-status: idea
+status: done
 title: Touch controls sit where thumbs naturally rest and never cover the game
-updated: '2026-10-22'
+updated: '2026-10-23'
 ---
 
 ## Why
