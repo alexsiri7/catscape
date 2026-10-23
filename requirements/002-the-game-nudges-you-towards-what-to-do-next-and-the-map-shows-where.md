@@ -2,9 +2,9 @@
 created: '2026-10-22'
 github_issue: 4
 id: '002'
-status: idea
+status: done
 title: The game nudges you towards what to do next, and the map shows where
-updated: '2026-10-22'
+updated: '2026-10-23'
 ---
 
 ## Why
