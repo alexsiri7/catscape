@@ -1,0 +1,11 @@
+/* Plain, readable text page (no game fonts, no inline styles: the CSP forbids them). */
+:root{--bg:#e9e1f0;--fg:#2b2238;--muted:#6f6480;--accent:#9a5a10}
+@media (prefers-color-scheme: dark){:root{--bg:#140f1f;--fg:#f1e7da;--muted:#8c80a3;--accent:#f0a040}}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:42rem;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:1.6rem;line-height:1.25;margin:0 0 4px}
+h2{font-size:1.15rem;margin:28px 0 6px}
+.updated{color:var(--muted);margin-top:0}
+a{color:var(--accent)}
+code{font-size:.9em;overflow-wrap:anywhere}
