@@ -962,6 +962,12 @@ function updatePlay(){
   if (cur.id === 'kitchen' && p.y < 150 && p.x > 12*T) thinkOnce('hobSeen', "Dat hob keeps turning on. Time it right. (Walk across when the flames are off.)");
   if (cur.id === 'office' && p.y > 150 && p.x > 8*T && p.x < 11*T) thinkOnce('wires', "Sparky wires. Only cross when dey stop sparking.", 180);
 
+  if (updatePickups()) return;
+}
+
+function updatePickups(){
+  const p = player;
+
   // fish & items
   for (const f of fishes) {
     if (!f.got && rectOv(p.x, p.y, p.w, p.h, f)) {
@@ -973,7 +979,7 @@ function updatePlay(){
       it.got = true; hasZoomies = true; SFX.win(); meow();
       puff(it.x + 3, it.y + 3, 20, '#9dffb0', 1.2);
       thinkNow("CATNIP!! I feel... ZOOOOMY. (Press JUMP again in mid-air to double jump.)", 420);
-      return;
+      return true;
     }
   }
 
@@ -997,6 +1003,7 @@ function updatePlay(){
     const c = tile(Math.floor((p.x + p.w/2) / T), Math.floor((p.y + p.h/2) / T));
     if (c === 'W' && windowOpen && netDown) { state = 'exit'; exitT = 45; meow(); }
   }
+  return false;
 }
 
 function update(){
