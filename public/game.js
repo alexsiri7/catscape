@@ -821,15 +821,8 @@ function updateBird(){
   }
 }
 
-function updatePlay(){
+function updatePlayerState(dir){
   const p = player;
-  if (pressed.has('restart')) { resetRoom(); return; }
-  if (p.grabCD > 0) p.grabCD--;
-  if (p.pawT > 0) p.pawT--;
-  if (p.meowT > 0) p.meowT--;
-  if (pressed.has('jump')) p.jumpBuf = 7; else if (p.jumpBuf > 0) p.jumpBuf--;
-  const dir = (held.right ? 1 : 0) - (held.left ? 1 : 0);
-
   if (p.state === 'climb') {
     p.ct++;
     if (p.ct >= 16) { p.x = p.cx1; p.y = p.cy1; p.state = 'normal'; p.ground = true; p.vx = p.vy = 0; }
@@ -857,7 +850,7 @@ function updatePlay(){
     // doorways: JUMP while standing in one
     const door = p.ground ? doorAt(p) : null;
     if (door) thinkOnce('door', "A doorway. (Stand in it and press JUMP to go through.)", 240);
-    if (door && p.jumpBuf > 0) { p.jumpBuf = 0; goDoor(door); return; }
+    if (door && p.jumpBuf > 0) { p.jumpBuf = 0; goDoor(door); return true; }
 
     if (dir) p.facing = dir;
     const target = dir * RUN * (p.pushing ? 0.6 : 1);
@@ -906,12 +899,14 @@ function updatePlay(){
     const cx = p.x + p.w / 2;
     if (cx < 0 || cx > W) {
       const n = roomAt(cur.def.gx + (cx < 0 ? -1 : 1), cur.def.gy);
-      if (n) { enterRoom(n, cx < 0 ? W - p.w - 1 : 1, p.y, cx < 0 ? -1 : 1); return; }
+      if (n) { enterRoom(n, cx < 0 ? W - p.w - 1 : 1, p.y, cx < 0 ? -1 : 1); return true; }
       p.x = Math.max(0, Math.min(W - p.w, p.x));
     }
   }
+  return false;
+}
 
-  // objects
+function updateObjectPhysics(){
   for (const o of objs) {
     o.vy = Math.min(MAXF, o.vy + GRAV);
     if (o.type === 'vase' || o.vx) {
@@ -932,8 +927,10 @@ function updatePlay(){
       puff(o.x + o.w/2, o.y + o.h, 5, '#d8c8b0', .7);
     }
   }
+}
 
-  // roombas
+function updateRoombaAI(){
+  const p = player;
   for (const r of roombas) {
     const nx = r.x + r.vx;
     const front = r.vx > 0 ? nx + r.w : nx;
@@ -942,12 +939,34 @@ function updatePlay(){
     else r.x = nx;
     if (p.state !== 'climb' && rectOv(p.x + 2, p.y + 2, p.w - 4, p.h - 2, r)) die('roomba');
   }
+}
+
+function updatePlay(){
+  const p = player;
+  if (pressed.has('restart')) { resetRoom(); return; }
+  if (p.grabCD > 0) p.grabCD--;
+  if (p.pawT > 0) p.pawT--;
+  if (p.meowT > 0) p.meowT--;
+  if (pressed.has('jump')) p.jumpBuf = 7; else if (p.jumpBuf > 0) p.jumpBuf--;
+  const dir = (held.right ? 1 : 0) - (held.left ? 1 : 0);
+
+  if (updatePlayerState(dir)) return;
+
+  updateObjectPhysics();
+
+  updateRoombaAI();
 
   updatePlates(false);
   updateStudy();
   if (p.state === 'normal' || p.state === 'hang') { const hz = hazardAt(p); if (hz) { die(hz); return; } }
   if (cur.id === 'kitchen' && p.y < 150 && p.x > 12*T) thinkOnce('hobSeen', "Dat hob keeps turning on. Time it right. (Walk across when the flames are off.)");
   if (cur.id === 'office' && p.y > 150 && p.x > 8*T && p.x < 11*T) thinkOnce('wires', "Sparky wires. Only cross when dey stop sparking.", 180);
+
+  if (updatePickups()) return;
+}
+
+function updatePickups(){
+  const p = player;
 
   // fish & items
   for (const f of fishes) {
@@ -960,7 +979,7 @@ function updatePlay(){
       it.got = true; hasZoomies = true; SFX.win(); meow();
       puff(it.x + 3, it.y + 3, 20, '#9dffb0', 1.2);
       thinkNow("CATNIP!! I feel... ZOOOOMY. (Press JUMP again in mid-air to double jump.)", 420);
-      return;
+      return true;
     }
   }
 
@@ -984,6 +1003,7 @@ function updatePlay(){
     const c = tile(Math.floor((p.x + p.w/2) / T), Math.floor((p.y + p.h/2) / T));
     if (c === 'W' && windowOpen && netDown) { state = 'exit'; exitT = 45; meow(); }
   }
+  return false;
 }
 
 function update(){
