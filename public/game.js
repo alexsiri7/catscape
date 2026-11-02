@@ -929,6 +929,18 @@ function updateObjectPhysics(){
   }
 }
 
+function updateRoombaAI(){
+  const p = player;
+  for (const r of roombas) {
+    const nx = r.x + r.vx;
+    const front = r.vx > 0 ? nx + r.w : nx;
+    const ahead = solidAt(Math.floor(front / T), Math.floor((r.y + r.h + 1) / T));
+    if (hitSolid(nx, r.y, r.w, r.h) || !ahead || objs.some(o => rectOv(nx, r.y, r.w, r.h, o))) r.vx *= -1;
+    else r.x = nx;
+    if (p.state !== 'climb' && rectOv(p.x + 2, p.y + 2, p.w - 4, p.h - 2, r)) die('roomba');
+  }
+}
+
 function updatePlay(){
   const p = player;
   if (pressed.has('restart')) { resetRoom(); return; }
@@ -942,15 +954,7 @@ function updatePlay(){
 
   updateObjectPhysics();
 
-  // roombas
-  for (const r of roombas) {
-    const nx = r.x + r.vx;
-    const front = r.vx > 0 ? nx + r.w : nx;
-    const ahead = solidAt(Math.floor(front / T), Math.floor((r.y + r.h + 1) / T));
-    if (hitSolid(nx, r.y, r.w, r.h) || !ahead || objs.some(o => rectOv(nx, r.y, r.w, r.h, o))) r.vx *= -1;
-    else r.x = nx;
-    if (p.state !== 'climb' && rectOv(p.x + 2, p.y + 2, p.w - 4, p.h - 2, r)) die('roomba');
-  }
+  updateRoombaAI();
 
   updatePlates(false);
   updateStudy();
