@@ -821,15 +821,8 @@ function updateBird(){
   }
 }
 
-function updatePlay(){
+function updatePlayerState(dir){
   const p = player;
-  if (pressed.has('restart')) { resetRoom(); return; }
-  if (p.grabCD > 0) p.grabCD--;
-  if (p.pawT > 0) p.pawT--;
-  if (p.meowT > 0) p.meowT--;
-  if (pressed.has('jump')) p.jumpBuf = 7; else if (p.jumpBuf > 0) p.jumpBuf--;
-  const dir = (held.right ? 1 : 0) - (held.left ? 1 : 0);
-
   if (p.state === 'climb') {
     p.ct++;
     if (p.ct >= 16) { p.x = p.cx1; p.y = p.cy1; p.state = 'normal'; p.ground = true; p.vx = p.vy = 0; }
@@ -857,7 +850,7 @@ function updatePlay(){
     // doorways: JUMP while standing in one
     const door = p.ground ? doorAt(p) : null;
     if (door) thinkOnce('door', "A doorway. (Stand in it and press JUMP to go through.)", 240);
-    if (door && p.jumpBuf > 0) { p.jumpBuf = 0; goDoor(door); return; }
+    if (door && p.jumpBuf > 0) { p.jumpBuf = 0; goDoor(door); return true; }
 
     if (dir) p.facing = dir;
     const target = dir * RUN * (p.pushing ? 0.6 : 1);
@@ -906,10 +899,23 @@ function updatePlay(){
     const cx = p.x + p.w / 2;
     if (cx < 0 || cx > W) {
       const n = roomAt(cur.def.gx + (cx < 0 ? -1 : 1), cur.def.gy);
-      if (n) { enterRoom(n, cx < 0 ? W - p.w - 1 : 1, p.y, cx < 0 ? -1 : 1); return; }
+      if (n) { enterRoom(n, cx < 0 ? W - p.w - 1 : 1, p.y, cx < 0 ? -1 : 1); return true; }
       p.x = Math.max(0, Math.min(W - p.w, p.x));
     }
   }
+  return false;
+}
+
+function updatePlay(){
+  const p = player;
+  if (pressed.has('restart')) { resetRoom(); return; }
+  if (p.grabCD > 0) p.grabCD--;
+  if (p.pawT > 0) p.pawT--;
+  if (p.meowT > 0) p.meowT--;
+  if (pressed.has('jump')) p.jumpBuf = 7; else if (p.jumpBuf > 0) p.jumpBuf--;
+  const dir = (held.right ? 1 : 0) - (held.left ? 1 : 0);
+
+  if (updatePlayerState(dir)) return;
 
   // objects
   for (const o of objs) {
