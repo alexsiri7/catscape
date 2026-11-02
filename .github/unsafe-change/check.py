@@ -280,6 +280,42 @@ def sql_problems(path: str, added: list[str], mig: dict) -> list[str]:
 # ── evaluation (pure apart from `fetch`; unit-tested) ────────────────────────
 
 
+def _check_deny_path(path: str, paths: list[str], deny: list[str]) -> list[str]:
+    hit = next((g for p in paths for g in deny if glob_match(p, g)), None)
+    if hit:
+        return ["%s: CI/deploy/infra path (%s)" % (path, hit)]
+    return []
+
+
+def _check_sensitive_word(path: str, paths: list[str], words: list[str], exempt: list[str]) -> list[str]:
+    word = next((w for p in paths if not any(glob_match(p, g) for g in exempt)
+                 for w in words if w in p.lower()), None)
+    if word:
+        return ["%s: secrets/auth-handling path (%r)" % (path, word)]
+    return []
+
+
+def _check_manifest(path: str, status: str, previous_filename: str | None, get) -> list[str]:
+    try:
+        base_text = get(previous_filename or path, "base") if status != "added" else None
+        head_text = get(path, "head") if status != "removed" else None
+    except Exception as e:  # noqa: BLE001 — anything unreadable fails closed
+        return ["%s: could not read the manifest (%s)" % (path, e)]
+    return dependency_problems(path, base_text, head_text)
+
+
+def _check_code_patterns(path: str, pats: list[str], added: list[str]) -> list[str]:
+    for pat in pats:
+        line = next((l for l in added if re.search(pat, l)), None)
+        if line is not None:
+            return ["%s: adds process/env/socket code (%s): %.80s" % (path, pat, line.strip())]
+    return []
+
+
+def _check_migration(path: str, added: list[str], mig: dict) -> list[str]:
+    return sql_problems(path, added, mig)
+
+
 def evaluate(files: list[dict], policy: dict, fetch=None) -> list[str]:
     """Problems with the PR's files (empty = pass).
 
@@ -304,24 +340,21 @@ def evaluate(files: list[dict], policy: dict, fetch=None) -> list[str]:
     for f in files:
         path, status = f["filename"], f["status"]
         paths = [path] + ([f["previous_filename"]] if f.get("previous_filename") else [])
-        hit = next((g for p in paths for g in deny if glob_match(p, g)), None)
-        if hit:
-            problems.append("%s: CI/deploy/infra path (%s)" % (path, hit))
+
+        deny_problems = _check_deny_path(path, paths, deny)
+        if deny_problems:
+            problems += deny_problems
             continue
-        word = next((w for p in paths if not any(glob_match(p, g) for g in exempt)
-                     for w in words if w in p.lower()), None)
-        if word:
-            problems.append("%s: secrets/auth-handling path (%r)" % (path, word))
+
+        word_problems = _check_sensitive_word(path, paths, words, exempt)
+        if word_problems:
+            problems += word_problems
             continue
+
         if any(is_manifest(p) for p in paths):
-            try:
-                base_text = get(f.get("previous_filename") or path, "base") if status != "added" else None
-                head_text = get(path, "head") if status != "removed" else None
-            except Exception as e:  # noqa: BLE001
-                problems.append("%s: could not read the manifest (%s)" % (path, e))
-                continue
-            problems += dependency_problems(path, base_text, head_text)
+            problems += _check_manifest(path, status, f.get("previous_filename"), get)
             continue
+
         if status == "removed":
             continue
         ext = path.rsplit(".", 1)[-1].lower() if "." in path.rsplit("/", 1)[-1] else ""
@@ -340,13 +373,9 @@ def evaluate(files: list[dict], policy: dict, fetch=None) -> list[str]:
                 problems.append("%s: no diff and could not read the file (%s)" % (path, e))
                 continue
             added = (text or "").splitlines()
-        for pat in pats:
-            line = next((l for l in added if re.search(pat, l)), None)
-            if line is not None:
-                problems.append("%s: adds process/env/socket code (%s): %.80s" % (path, pat, line.strip()))
-                break
+        problems += _check_code_patterns(path, pats, added)
         if is_mig:
-            problems += sql_problems(path, added, mig)
+            problems += _check_migration(path, added, mig)
     return problems
 
 
