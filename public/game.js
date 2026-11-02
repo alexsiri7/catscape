@@ -906,18 +906,7 @@ function updatePlayerState(dir){
   return false;
 }
 
-function updatePlay(){
-  const p = player;
-  if (pressed.has('restart')) { resetRoom(); return; }
-  if (p.grabCD > 0) p.grabCD--;
-  if (p.pawT > 0) p.pawT--;
-  if (p.meowT > 0) p.meowT--;
-  if (pressed.has('jump')) p.jumpBuf = 7; else if (p.jumpBuf > 0) p.jumpBuf--;
-  const dir = (held.right ? 1 : 0) - (held.left ? 1 : 0);
-
-  if (updatePlayerState(dir)) return;
-
-  // objects
+function updateObjectPhysics(){
   for (const o of objs) {
     o.vy = Math.min(MAXF, o.vy + GRAV);
     if (o.type === 'vase' || o.vx) {
@@ -938,6 +927,20 @@ function updatePlay(){
       puff(o.x + o.w/2, o.y + o.h, 5, '#d8c8b0', .7);
     }
   }
+}
+
+function updatePlay(){
+  const p = player;
+  if (pressed.has('restart')) { resetRoom(); return; }
+  if (p.grabCD > 0) p.grabCD--;
+  if (p.pawT > 0) p.pawT--;
+  if (p.meowT > 0) p.meowT--;
+  if (pressed.has('jump')) p.jumpBuf = 7; else if (p.jumpBuf > 0) p.jumpBuf--;
+  const dir = (held.right ? 1 : 0) - (held.left ? 1 : 0);
+
+  if (updatePlayerState(dir)) return;
+
+  updateObjectPhysics();
 
   // roombas
   for (const r of roombas) {
