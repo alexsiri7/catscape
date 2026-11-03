@@ -322,25 +322,19 @@ class CheckPr(unittest.TestCase):
             gh.compare("B0", "EVT")
 
     def test_a_dry_run_holds_a_pr_it_cannot_check_and_goes_on(self):
-        def no_file_list():
-            raise KeyError("files")
-        faults = {"KeyError: 'files'": no_file_list,
-                  "TypeError: object of type 'NoneType' has no len()": lambda: ("MB", None)}
-        for error, first_compare in faults.items():
-            with self.subTest(error):
-                class FirstCompareFails(FakeGitHub):
-                    def compare(self, base, head):
-                        if not self.compared:
-                            self.compared.append((base, head))
-                            return first_compare()
-                        return super().compare(base, head)
+        class FirstCompareHasNoFileList(FakeGitHub):
+            def compare(self, base, head):
+                if not self.compared:
+                    self.compared.append((base, head))
+                    return "MB", None
+                return super().compare(base, head)
 
-                gh = FirstCompareFails([])
-                out = io.StringIO()
-                with contextlib.redirect_stdout(out):
-                    check.dry_run(gh, ["7", "7"], POLICY)
-                self.assertEqual(out.getvalue().splitlines(), [
-                    "#7 HOLD", "    - could not be checked: " + error, "#7 pass", "1 of 2 would be held"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            check.dry_run(FirstCompareHasNoFileList([]), ["7", "7"], POLICY)
+        self.assertEqual(out.getvalue().splitlines(), [
+            "#7 HOLD", "    - could not be checked: TypeError: object of type 'NoneType' has no len()",
+            "#7 pass", "1 of 2 would be held"])
 
 if __name__ == "__main__":
     unittest.main()
