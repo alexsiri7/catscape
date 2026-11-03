@@ -213,6 +213,16 @@ class Screened(unittest.TestCase):
             {"number": 4, "labels": ["archon:auto-approved"]},
         ], POLICY), [1, 4])
 
+    def test_factory_prs_without_a_closing_reference_are_still_judged(self):
+        factory = {"head": {"ref": "archon/task-123"}, "user": {"login": "someone"}, "labels": []}
+        owner = {"head": {"ref": "alex/fix"}, "user": {"login": "alex"}, "labels": []}
+        approved = {"head": {"ref": "archon/task-123"}, "user": {"login": "someone"},
+                    "labels": [{"name": "archon:approved"}]}
+        self.assertTrue(check.applies(factory, [], POLICY))
+        self.assertFalse(check.applies(owner, [], POLICY))
+        self.assertFalse(check.applies(approved, [], POLICY))
+        self.assertTrue(check.applies(owner, [12], POLICY))
+
     def test_closing_keywords(self):
         self.assertEqual(sorted(int(m) for m in check.CLOSING_RE.findall("Fixes #12, closes #3 and resolved #7; not #9")), [3, 7, 12])
 

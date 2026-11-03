@@ -14,6 +14,13 @@
 screened_label: archon:auto-approved
 approved_label: archon:approved
 
+# A PR that references no screened issue is still judged when it comes from
+# the factory (head branch or author below) and the PR itself does not carry
+# approved_label. Otherwise dropping the "Closes #N" line would skip the check.
+screened_branches:
+  - "archon/*"
+screened_authors: []   # GitHub logins of the factory's bot accounts, if any
+
 # 1. CI, deploy, infra, build scripts and agent instructions. Any status
 #    (added, modified, removed, renamed from/to).
 deny_paths:

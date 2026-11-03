@@ -25,7 +25,9 @@ base branch: a PR cannot weaken the check that judges it. It never checks
 out or runs PR code; it reads the PR's file list, patches and manifest
 contents from the API as data.
 
-PRs that close no screened-only issue pass at once ("not applicable").
+PRs that close no screened-only issue pass at once ("not applicable"), unless
+the PR is itself factory output (screened_branches / screened_authors)
+without the owner's approved_label, in which case it is still judged.
 
 Usage (CI): GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo PR_NUMBER=n check.py
 Dry run:    check.py --dry-run [--policy FILE] PR... (uses `gh auth token`,
@@ -387,6 +389,21 @@ def screened(issues: list[dict], policy: dict) -> list[int]:
             if screened_label in i["labels"] and approved_label not in i["labels"]]
 
 
+def applies(pull: dict, nums: list[int], policy: dict) -> bool:
+    """Whether the denylist judges this PR: it closes a screened-only issue,
+    or it is factory output (screened_branches / screened_authors) without
+    approved_label on the PR itself."""
+    if nums:
+        return True
+    labels = [l["name"] for l in pull.get("labels") or []]
+    if policy.get("approved_label", "archon:approved") in labels:
+        return False
+    ref = (pull.get("head") or {}).get("ref") or ""
+    author = (pull.get("user") or {}).get("login") or ""
+    return (any(glob_match(ref, g) for g in policy.get("screened_branches") or [])
+            or author in (policy.get("screened_authors") or []))
+
+
 # ── GitHub I/O ───────────────────────────────────────────────────────────────
 
 
@@ -437,15 +454,16 @@ def check_pr(gh: GitHub, pr: int, policy: dict, force: bool = False) -> tuple[in
     """(exit code, problems, summary line)."""
     pull = gh.api("/pulls/%d" % pr)
     nums = screened(gh.closing_issues(pr, pull.get("body") or ""), policy)
-    if not nums and not force:
-        return 0, [], "unsafe-change: not applicable (the PR closes no issue that only automated screening vetted)"
+    if not force and not applies(pull, nums, policy):
+        return 0, [], ("unsafe-change: not applicable (the PR closes no issue that only "
+                       "automated screening vetted and is not factory output)")
     files = gh.pr_files(pr)
     shas = {"base": pull["base"]["sha"], "head": pull["head"]["sha"]}
     problems = []
     if len(files) < pull.get("changed_files", 0):
         problems.append("the API listed %d of %d changed files" % (len(files), pull["changed_files"]))
     problems += evaluate(files, policy, lambda path, side: gh.content(path, shas[side]))
-    closes = ", ".join("#%d" % n for n in nums) or "(none; forced)"
+    closes = ", ".join("#%d" % n for n in nums) or ("(none; forced)" if force else "(none; factory branch/author)")
     if problems:
         return 1, problems, "unsafe-change: FAILED (closes %s):" % closes
     return 0, [], "unsafe-change: ok — %d file(s), nothing on the denylist (closes %s)" % (len(files), closes)
