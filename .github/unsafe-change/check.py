@@ -25,7 +25,9 @@ base branch: a PR cannot weaken the check that judges it. It never checks
 out or runs PR code; it reads the PR's file list, patches and manifest
 contents from the API as data.
 
-PRs that close no screened-only issue pass at once ("not applicable").
+PRs that close no screened-only issue pass at once ("not applicable"), unless
+the PR is itself factory output (screened_branches / screened_authors)
+without the owner's approved_label, in which case it is still judged.
 
 Usage (CI): GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo PR_NUMBER=n check.py
 Dry run:    check.py --dry-run [--policy FILE] PR... (uses `gh auth token`,
@@ -73,7 +75,8 @@ def glob_match(path: str, glob: str) -> bool:
 
 
 def _patch_added(patch: str | None) -> list[str]:
-    return [l[1:] for l in (patch or "").splitlines() if l.startswith("+") and not l.startswith("+++")]
+    # The pulls/files API patch has no ---/+++ header, so every "+" line is an added line.
+    return [l[1:] for l in (patch or "").splitlines() if l.startswith("+")]
 
 
 # ── dependencies ─────────────────────────────────────────────────────────────
@@ -297,7 +300,8 @@ def _check_sensitive_word(path: str, paths: list[str], words: list[str], exempt:
 
 def _check_manifest(path: str, status: str, previous_filename: str | None, get) -> list[str]:
     try:
-        base_text = get(previous_filename or path, "base") if status != "added" else None
+        base_path = previous_filename or path
+        base_text = (get(base_path, "base") if status != "added" and is_manifest(base_path) else None)
         head_text = get(path, "head") if status != "removed" else None
     except Exception as e:  # noqa: BLE001 — anything unreadable fails closed
         return ["%s: could not read the manifest (%s)" % (path, e)]
@@ -362,10 +366,13 @@ def evaluate(files: list[dict], policy: dict, fetch=None) -> list[str]:
         is_mig = any(glob_match(path, g) for g in mig.get("paths", []))
         if not pats and not is_mig:
             continue
-        if f.get("patch") is not None:
+        prev = f.get("previous_filename")
+        prev_ext = prev.rsplit(".", 1)[-1].lower() if prev and "." in prev.rsplit("/", 1)[-1] else ""
+        prev_scanned = bool(code_patterns.get(prev_ext)) or any(glob_match(prev, g) for g in mig.get("paths", [])) if prev else True
+        if f.get("patch") is not None and prev_scanned:
             added = _patch_added(f["patch"])
-        elif status == "renamed" and not f.get("changes"):
-            added = []  # a pure rename adds no lines
+        elif status == "renamed" and not f.get("changes") and prev_scanned:
+            added = []  # a pure rename between scanned names adds no lines
         else:
             try:
                 text = get(path, "head")
@@ -385,6 +392,21 @@ def screened(issues: list[dict], policy: dict) -> list[int]:
     approved_label = policy.get("approved_label", "archon:approved")
     return [i["number"] for i in issues
             if screened_label in i["labels"] and approved_label not in i["labels"]]
+
+
+def applies(pull: dict, nums: list[int], policy: dict) -> bool:
+    """Whether the denylist judges this PR: it closes a screened-only issue,
+    or it is factory output (screened_branches / screened_authors) without
+    approved_label on the PR itself."""
+    if nums:
+        return True
+    labels = [l["name"] for l in pull.get("labels") or []]
+    if policy.get("approved_label", "archon:approved") in labels:
+        return False
+    ref = (pull.get("head") or {}).get("ref") or ""
+    author = (pull.get("user") or {}).get("login") or ""
+    return (any(glob_match(ref, g) for g in policy.get("screened_branches") or [])
+            or author in (policy.get("screened_authors") or []))
 
 
 # ── GitHub I/O ───────────────────────────────────────────────────────────────
@@ -424,28 +446,29 @@ class GitHub:
     def closing_issues(self, pr: int, body: str) -> list[dict]:
         owner, name = self.repo.split("/", 1)
         q = {"query": "query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p)"
-                      "{closingIssuesReferences(first:20){nodes{number}}}}}",
+                      "{closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}",
              "variables": {"o": owner, "n": name, "p": pr}}
         gql = self.api("https://api.github.com/graphql", json.dumps(q).encode())
-        numbers = {n["number"] for n in gql["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]}
+        nodes = gql["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]
+        numbers = {n["number"] for n in nodes if n["repository"]["nameWithOwner"].lower() == self.repo.lower()}
         numbers |= {int(m) for m in CLOSING_RE.findall(body or "")}
         return [{"number": n, "labels": [l["name"] for l in self.api("/issues/%d" % n).get("labels", [])]}
                 for n in sorted(numbers)]
-
 
 def check_pr(gh: GitHub, pr: int, policy: dict, force: bool = False) -> tuple[int, list[str], str]:
     """(exit code, problems, summary line)."""
     pull = gh.api("/pulls/%d" % pr)
     nums = screened(gh.closing_issues(pr, pull.get("body") or ""), policy)
-    if not nums and not force:
-        return 0, [], "unsafe-change: not applicable (the PR closes no issue that only automated screening vetted)"
+    if not force and not applies(pull, nums, policy):
+        return 0, [], ("unsafe-change: not applicable (the PR closes no issue that only "
+                       "automated screening vetted and is not factory output)")
     files = gh.pr_files(pr)
     shas = {"base": pull["base"]["sha"], "head": pull["head"]["sha"]}
     problems = []
     if len(files) < pull.get("changed_files", 0):
         problems.append("the API listed %d of %d changed files" % (len(files), pull["changed_files"]))
     problems += evaluate(files, policy, lambda path, side: gh.content(path, shas[side]))
-    closes = ", ".join("#%d" % n for n in nums) or "(none; forced)"
+    closes = ", ".join("#%d" % n for n in nums) or ("(none; forced)" if force else "(none; factory branch/author)")
     if problems:
         return 1, problems, "unsafe-change: FAILED (closes %s):" % closes
     return 0, [], "unsafe-change: ok — %d file(s), nothing on the denylist (closes %s)" % (len(files), closes)

