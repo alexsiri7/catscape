@@ -34,7 +34,8 @@ const matches = (pattern, path) =>
 const rules = parseHeaders(readFileSync(join(ROOT, '_headers'), 'utf8'));
 
 function resolve(urlPath) {
-  let p = decodeURIComponent(urlPath.split('?')[0]);
+  let p;
+  try { p = decodeURIComponent(urlPath.split('?')[0]); } catch { return null; }
   if (p.endsWith('/')) p += 'index.html';
   const file = normalize(join(ROOT, p));
   if (!file.startsWith(ROOT) || file.split(sep).includes('..')) return null;
