@@ -75,7 +75,8 @@ def glob_match(path: str, glob: str) -> bool:
 
 
 def _patch_added(patch: str | None) -> list[str]:
-    return [l[1:] for l in (patch or "").splitlines() if l.startswith("+") and not l.startswith("+++")]
+    # The pulls/files API patch has no ---/+++ header, so every "+" line is an added line.
+    return [l[1:] for l in (patch or "").splitlines() if l.startswith("+")]
 
 
 # ── dependencies ─────────────────────────────────────────────────────────────
@@ -299,7 +300,8 @@ def _check_sensitive_word(path: str, paths: list[str], words: list[str], exempt:
 
 def _check_manifest(path: str, status: str, previous_filename: str | None, get) -> list[str]:
     try:
-        base_text = get(previous_filename or path, "base") if status != "added" else None
+        base_path = previous_filename or path
+        base_text = (get(base_path, "base") if status != "added" and is_manifest(base_path) else None)
         head_text = get(path, "head") if status != "removed" else None
     except Exception as e:  # noqa: BLE001 — anything unreadable fails closed
         return ["%s: could not read the manifest (%s)" % (path, e)]
@@ -364,10 +366,13 @@ def evaluate(files: list[dict], policy: dict, fetch=None) -> list[str]:
         is_mig = any(glob_match(path, g) for g in mig.get("paths", []))
         if not pats and not is_mig:
             continue
-        if f.get("patch") is not None:
+        prev = f.get("previous_filename")
+        prev_ext = prev.rsplit(".", 1)[-1].lower() if prev and "." in prev.rsplit("/", 1)[-1] else ""
+        prev_scanned = bool(code_patterns.get(prev_ext)) or any(glob_match(prev, g) for g in mig.get("paths", [])) if prev else True
+        if f.get("patch") is not None and prev_scanned:
             added = _patch_added(f["patch"])
-        elif status == "renamed" and not f.get("changes"):
-            added = []  # a pure rename adds no lines
+        elif status == "renamed" and not f.get("changes") and prev_scanned:
+            added = []  # a pure rename between scanned names adds no lines
         else:
             try:
                 text = get(path, "head")
@@ -441,14 +446,14 @@ class GitHub:
     def closing_issues(self, pr: int, body: str) -> list[dict]:
         owner, name = self.repo.split("/", 1)
         q = {"query": "query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p)"
-                      "{closingIssuesReferences(first:20){nodes{number}}}}}",
+                      "{closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}",
              "variables": {"o": owner, "n": name, "p": pr}}
         gql = self.api("https://api.github.com/graphql", json.dumps(q).encode())
-        numbers = {n["number"] for n in gql["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]}
+        nodes = gql["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]
+        numbers = {n["number"] for n in nodes if n["repository"]["nameWithOwner"].lower() == self.repo.lower()}
         numbers |= {int(m) for m in CLOSING_RE.findall(body or "")}
         return [{"number": n, "labels": [l["name"] for l in self.api("/issues/%d" % n).get("labels", [])]}
                 for n in sorted(numbers)]
-
 
 def check_pr(gh: GitHub, pr: int, policy: dict, force: bool = False) -> tuple[int, list[str], str]:
     """(exit code, problems, summary line)."""

