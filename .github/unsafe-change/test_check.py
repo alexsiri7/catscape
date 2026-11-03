@@ -263,7 +263,7 @@ class Screened(unittest.TestCase):
 
 
 class FakeGitHub:
-    """Records which refs check_pr reads; the live PR head ("LIVE") has moved past the event's ("EVT")."""
+    """Records which refs check_pr reads; every read of the live PR sees a head ("LIVEn") past the event's ("EVT")."""
 
     def __init__(self, files, contents=None):
         self.files, self.contents = files, contents or {}
@@ -272,8 +272,9 @@ class FakeGitHub:
     def api(self, url):
         self.urls.append(url)
         assert url == "/pulls/7", url
-        return {"body": "", "labels": [], "head": {"sha": "LIVE", "ref": "archon/x"},
-                "base": {"sha": "B0"}, "user": {"login": "u"}}
+        n = len(self.urls)  # each read of the pull sees a newer push
+        return {"body": "", "labels": [], "head": {"sha": "LIVE%d" % n, "ref": "archon/x"},
+                "base": {"sha": "B%d" % n}, "user": {"login": "u"}}
 
     def closing_issues(self, pr, body):
         return []
@@ -305,6 +306,18 @@ class CheckPr(unittest.TestCase):
         code, problems, _ = check.check_pr(gh, 7, POLICY, head_sha="EVT", base_sha="B0")
         self.assertEqual(code, 1)
         self.assertIn("the most the API returns", " ".join(problems))
+
+    def test_without_event_shas_one_read_of_the_pull_pins_list_and_contents(self):
+        gh = FakeGitHub([f("package.json", "modified", added('"left-pad": "1"'))])
+        check.check_pr(gh, 7, POLICY, force=True)
+        self.assertEqual(gh.compared, [("B1", "LIVE1")])
+        self.assertEqual(sorted(gh.refs), ["LIVE1", "MB"])
+
+    def test_a_comparison_without_a_file_list_raises(self):
+        gh = check.GitHub("o/r", "t")
+        gh.api = lambda url: {"merge_base_commit": {"sha": "MB"}}
+        with self.assertRaises(KeyError):
+            gh.compare("B0", "EVT")
 
 
 if __name__ == "__main__":

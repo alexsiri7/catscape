@@ -441,7 +441,7 @@ class GitHub:
         """(merge-base sha, changed files) of base...head. No paging parameters:
         the files list is not paginated and holds at most COMPARE_FILE_CAP files."""
         c = self.api("/compare/%s...%s" % (base, head))
-        return c["merge_base_commit"]["sha"], c.get("files") or []
+        return c["merge_base_commit"]["sha"], c["files"]
 
     def closing_issues(self, pr: int, body: str) -> list[dict]:
         owner, name = self.repo.split("/", 1)
