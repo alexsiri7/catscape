@@ -47,6 +47,14 @@ const chrome = spawn(chromeBin, [
   '--no-first-run', '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--window-size=390,844', 'about:blank',
 ], { stdio: 'ignore', detached: true });
 const chromeExited = once(chrome, 'exit');
+// Kill Chrome's whole process group: its helpers outlive the main process and keep writing to the profile.
+async function stopChrome() {
+  try { process.kill(-chrome.pid, 'SIGKILL'); } catch {}
+  await chromeExited;
+  rmSync(profileDir, { recursive: true, force: true, maxRetries: 5 });
+}
+// Chrome is in its own process group, so a Ctrl-C no longer reaches it: stop it, then die of the signal as before.
+for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, async () => { await stopChrome(); process.kill(process.pid, sig); });
 
 let ws;
 try {
@@ -179,11 +187,8 @@ try {
   problems.push(e.message);
 } finally {
   try { ws && ws.close(); } catch {}
-  // Kill Chrome's whole process group: its helpers outlive the main process and keep writing to the profile.
-  try { process.kill(-chrome.pid, 'SIGKILL'); } catch {}
   server && server.close();
-  await chromeExited;
-  rmSync(profileDir, { recursive: true, force: true, maxRetries: 5 });
+  await stopChrome();
 }
 
 if (problems.length) {
