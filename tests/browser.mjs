@@ -45,7 +45,7 @@ const profileDir = mkdtempSync(join(tmpdir(), 'catscape-'));
 const chrome = spawn(chromeBin, [
   '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`,
   '--no-first-run', '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--window-size=390,844', 'about:blank',
-], { stdio: 'ignore' });
+], { stdio: 'ignore', detached: true });
 const chromeExited = once(chrome, 'exit');
 
 let ws;
@@ -179,10 +179,11 @@ try {
   problems.push(e.message);
 } finally {
   try { ws && ws.close(); } catch {}
-  chrome.kill('SIGKILL');
+  // Kill Chrome's whole process group: its helpers outlive the main process and keep writing to the profile.
+  try { process.kill(-chrome.pid, 'SIGKILL'); } catch {}
   server && server.close();
-  await chromeExited; // Chrome writes to its profile until it is gone
-  rmSync(profileDir, { recursive: true, force: true });
+  await chromeExited;
+  rmSync(profileDir, { recursive: true, force: true, maxRetries: 5 });
 }
 
 if (problems.length) {
