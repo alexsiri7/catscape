@@ -233,7 +233,7 @@ class Fails(unittest.TestCase):
     def test_quotes_in_comments_do_not_hide_migration_sql(self):
         sql = added("-- don't worry", "UPDATE auth.users SET role = 'admin';", "-- it's fine")
         self.assertFlags([f("migrations/2026_x.sql", patch=sql)], needle="migration")
-        sql = added("SELECT '--' FROM events.things;", "GRANT ALL ON SCHEMA events TO PUBLIC;")
+        sql = added("SELECT '--' FROM events.things; GRANT ALL ON SCHEMA events TO PUBLIC;")
         self.assertFlags([f("migrations/2026_x.sql", patch=sql)], needle="migration")
 
     def test_python_migrations_are_checked_too(self):
