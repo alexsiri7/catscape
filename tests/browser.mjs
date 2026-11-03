@@ -7,6 +7,7 @@
 // or (on touch phones in portrait and landscape) a pad button that is under 56 CSS px
 // or overlaps the canvas.
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,7 +46,7 @@ const chrome = spawn(chromeBin, [
   '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`,
   '--no-first-run', '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--window-size=390,844', 'about:blank',
 ], { stdio: 'ignore' });
-const chromeExited = new Promise((r) => chrome.once('exit', r));
+const chromeExited = once(chrome, 'exit');
 
 let ws;
 try {
