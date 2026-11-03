@@ -249,10 +249,16 @@ def dependency_problems(path: str, base_text: str | None, head_text: str | None)
 # ── SQL ──────────────────────────────────────────────────────────────────────
 
 
+_SQL_COMMENT_OR_LITERAL = re.compile(r"--[^\n]*|'(?:[^']|'')*'")
+
+
 def _sql_code(text: str) -> str:
-    """SQL with -- comments removed and '...' literals replaced by ''."""
-    text = re.sub(r"'(?:[^']|'')*'", "''", text)
-    return re.sub(r"--[^\n]*", "", text)
+    """SQL with -- comments removed and '...' literals replaced by ''.
+
+    One left-to-right pass, so a quote inside a comment, or -- inside a
+    literal, cannot hide the code that follows it.
+    """
+    return _SQL_COMMENT_OR_LITERAL.sub(lambda m: "" if m.group(0).startswith("--") else "''", text)
 
 
 _QUALIFIED = re.compile(
