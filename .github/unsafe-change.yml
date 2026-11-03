@@ -26,6 +26,8 @@ deny_paths:
   - "fly.toml"
   - "vercel.json"
   - "wrangler.toml"
+  - "wrangler.json"
+  - "wrangler.jsonc"
   - "Procfile"
   - "ops/*"
   - "scripts/deploy*"
@@ -51,6 +53,8 @@ extra_deny_paths:
   - "public/_redirects"    # Pages routing
   - "public/_routes.json"  # Pages Functions routing
   - "functions/*"          # Pages Functions: server-side code on the site
+  - "_worker.js"           # Pages advanced mode: a Worker in front of every request; _headers no longer governs its responses
+  - "*/_worker.js/*"       # directory form of the same (_worker.js/index.js)
   - "tests/browser.mjs"    # the CI gate that catches JS errors, CSP violations and served repo files
   - "tests/serve.mjs"      # applies _headers for that gate
 

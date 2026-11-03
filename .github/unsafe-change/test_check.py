@@ -87,6 +87,10 @@ class Fails(unittest.TestCase):
                      "functions/api/x.js", "tests/browser.mjs", "tests/serve.mjs"]:
             self.assertFlags([f(path, "modified", added("x"))], needle=path)
 
+    def test_pages_worker_and_wrangler_json_are_denied(self):
+        for path in ["public/_worker.js", "public/_worker.js/index.js", "wrangler.json", "wrangler.jsonc"]:
+            self.assertFlags([f(path, "added", added("x"))], needle=path)
+
     def test_removing_or_renaming_away_from_a_denied_path_fails(self):
         self.assertFlags([f(".github/workflows/unsafe-change.yml", "removed")])
         self.assertFlags([f("docs/x.yml", "renamed", previous_filename=".github/workflows/ci.yml")])
