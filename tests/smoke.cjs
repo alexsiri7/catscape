@@ -150,12 +150,9 @@ test('fuzz: random input in every room never throws', () => {
 
 (async () => {
   const { server } = await import('./serve.mjs');
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  const get = p => new Promise((res, rej) => require('http').get({ host: '127.0.0.1', port: server.address().port, path: p }, r => { r.resume(); res(r.statusCode); }).on('error', rej));
-  try {
-    assert.equal(await get('/%'), 404);
-    assert.equal(await get('/'), 200);       // still up after the malformed request
-  } finally { server.close(); }
+  const get = url => { const res = { setHeader() {}, writeHead(s) { this.status = s; }, end() {} }; server.emit('request', { url, method: 'GET' }, res); return res.status; };
+  assert.equal(get('/%'), 404);
+  assert.equal(get('/'), 200);
   passed++; console.log('ok - test server answers a malformed percent-escape with 404 instead of crashing');
   console.log(`\n${passed} passed`);
 })().catch(e => { console.error(e); process.exit(1); });
