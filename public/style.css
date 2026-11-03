@@ -1,3 +1,6 @@
+/* Fonts are self-hosted (SIL OFL 1.1, licences in fonts/) so no request leaves the site. */
+@font-face{font-family:"Press Start 2P";font-style:normal;font-weight:400;font-display:swap;src:url(fonts/PressStart2P-Regular.ttf) format("truetype")}
+@font-face{font-family:"VT323";font-style:normal;font-weight:400;font-display:swap;src:url(fonts/VT323-Regular.ttf) format("truetype")}
 :root{
   --bg:#e9e1f0; --fg:#2b2238; --muted:#6f6480; --frame:#2b2238;
   --btn:#d6cbe3; --btn-on:#bfb0d3; --accent:#f0a040; --accent-ink:#2a1606;

@@ -170,7 +170,7 @@ try {
   console.log('page info:', JSON.stringify(info));
   if (!info || !/^Catscape/.test(info.title)) problems.push(`page did not load (title ${info && info.title})`);
   if (!info || !info.w || info.colours < 3) problems.push('canvas is missing or blank');
-  if (!info || !info.pressStart || !info.vt323) problems.push('Google Fonts did not load (Press Start 2P / VT323)');
+  if (!info || !info.pressStart || !info.vt323) problems.push('Fonts did not load (Press Start 2P / VT323)');
   if (!info || !info.styled) problems.push('style.css did not apply');
 } catch (e) {
   problems.push(e.message);

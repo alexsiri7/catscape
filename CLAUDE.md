@@ -6,9 +6,10 @@ Static browser game with no build step, served as-is from `public/` by Cloudflar
 - `public/game.js`: the whole game (the script layout below).
 - `public/style.css`: the styles.
 - `public/_headers`: the production security headers and CSP (Cloudflare Pages format).
+- `public/fonts/`: self-hosted Press Start 2P and VT323, with their OFL licences.
 - `public/404.html`, `public/favicon.svg`.
 
-Everything outside `public/` (tests, CI, this file) is never served. No external assets except Google Fonts (Press Start 2P for UI, VT323 for Lyra's thoughts).
+Everything outside `public/` (tests, CI, this file) is never served. No external assets: the fonts (Press Start 2P for UI, VT323 for Lyra's thoughts) are self-hosted in `public/fonts/`.
 
 Always run `node tests/smoke.cjs` after changes. Add a scenario there when adding a puzzle. For any visual or page change also run `node tests/browser.mjs /tmp/catscape-shots` and look at the screenshots.
 
@@ -59,7 +60,7 @@ Study (through gate K): swat radiator valve → heat builds → hooman sweats, o
 
 - Keep it a static site with no build step, no bundler, no npm dependencies and no backend (no Pages Functions), unless the owner says otherwise. Cloudflare Pages serves `public/` exactly as committed.
 - Only site files go in `public/`. Tests, CI, docs and tooling stay outside it, so they are never served. `tests/browser.mjs` checks that repo files return 404.
-- Keep the CSP in `public/_headers` working without `'unsafe-inline'`: no inline `<script>`, no inline `<style>` or `style="..."` attributes, and no `on*=` handlers in HTML. Setting `element.style.x` from JS is fine. The only external origins are Google Fonts (`fonts.googleapis.com` for CSS, `fonts.gstatic.com` for font files). A new origin, or any other header change, needs a matching `_headers` edit, and that edit needs the owner's review.
+- Keep the CSP in `public/_headers` working without `'unsafe-inline'`: no inline `<script>`, no inline `<style>` or `style="..."` attributes, and no `on*=` handlers in HTML. Setting `element.style.x` from JS is fine. The page loads nothing from other origins (no third-party request sends visitor data anywhere). A new origin, or any other header change, needs a matching `_headers` edit, and that edit needs the owner's review.
 - No asset files for sound or sprites: sprites are drawn in code and all sound is synthesised live with the Web Audio API.
 - Controls: keyboard plus the on-screen touch pad. Keep both working.
 - The test hook (`globalThis.__CATSCAPE_TEST__`) must stay inert unless a harness sets it before `game.js` loads.
