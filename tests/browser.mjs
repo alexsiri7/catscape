@@ -7,7 +7,7 @@
 // or (on touch phones in portrait and landscape) a pad button that is under 56 CSS px
 // or overlaps the canvas.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -40,10 +40,12 @@ for (const p of ['tests/smoke.cjs', 'package.json', 'CLAUDE.md', 'README.md', '.
 
 // 2. The page in headless Chrome at phone size.
 const port = 9300 + Math.floor(Math.random() * 500);
+const profileDir = mkdtempSync(join(tmpdir(), 'catscape-'));
 const chrome = spawn(chromeBin, [
-  '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'catscape-'))}`,
+  '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`,
   '--no-first-run', '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--window-size=390,844', 'about:blank',
 ], { stdio: 'ignore' });
+const chromeExited = new Promise((r) => chrome.once('exit', r));
 
 let ws;
 try {
@@ -178,6 +180,8 @@ try {
   try { ws && ws.close(); } catch {}
   chrome.kill('SIGKILL');
   server && server.close();
+  await chromeExited; // Chrome writes to its profile until it is gone
+  rmSync(profileDir, { recursive: true, force: true });
 }
 
 if (problems.length) {
