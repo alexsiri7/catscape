@@ -1,5 +1,7 @@
 """Unit tests for the unsafe-change check (run: python3 -m unittest discover -s .github/unsafe-change)."""
 
+import contextlib
+import io
 import unittest
 
 import check
@@ -319,6 +321,20 @@ class CheckPr(unittest.TestCase):
         with self.assertRaises(KeyError):
             gh.compare("B0", "EVT")
 
+    def test_a_dry_run_holds_a_pr_it_cannot_check_and_goes_on(self):
+        class FirstCompareFails(FakeGitHub):
+            def compare(self, base, head):
+                if not self.compared:
+                    self.compared.append((base, head))
+                    raise KeyError("files")
+                return super().compare(base, head)
+
+        gh = FirstCompareFails([])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            check.dry_run(gh, ["7", "7"], POLICY)
+        self.assertEqual(out.getvalue().splitlines(), [
+            "#7 HOLD", "    - could not be checked: KeyError: 'files'", "#7 pass", "1 of 2 would be held"])
 
 if __name__ == "__main__":
     unittest.main()

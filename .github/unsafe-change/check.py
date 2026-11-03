@@ -479,6 +479,20 @@ def check_pr(gh: GitHub, pr: int, policy: dict, force: bool = False,
     return 0, [], "unsafe-change: ok — %d file(s), nothing on the denylist (closes %s)" % (len(files), closes)
 
 
+def dry_run(gh: GitHub, prs: list[str], policy: dict) -> None:
+    held = 0
+    for n in prs:
+        try:
+            code, problems, _ = check_pr(gh, int(n), policy, force=True)
+        except Exception as e:  # one unreadable PR still leaves a verdict for the rest
+            code, problems = 1, ["could not be checked: %s: %s" % (type(e).__name__, e)]
+        held += code
+        print("#%s %s" % (n, "HOLD" if code else "pass"))
+        for p in problems:
+            print("    - " + p)
+    print("%d of %d would be held" % (held, len(prs)))
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["--dry-run"]:
         args = argv[1:]
@@ -490,15 +504,7 @@ def main(argv: list[str]) -> int:
         repo = os.environ.get("GITHUB_REPOSITORY") or subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
             capture_output=True, text=True, check=True).stdout.strip()
-        gh = GitHub(repo, token)
-        held = 0
-        for n in args:
-            code, problems, summary = check_pr(gh, int(n), policy, force=True)
-            held += code
-            print("#%s %s" % (n, "HOLD" if code else "pass"))
-            for p in problems:
-                print("    - " + p)
-        print("%d of %d would be held" % (held, len(args)))
+        dry_run(GitHub(repo, token), args, policy)
         return 0
     gh = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
     code, problems, summary = check_pr(gh, int(os.environ["PR_NUMBER"]), load_policy(),
