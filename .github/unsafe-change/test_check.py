@@ -262,5 +262,50 @@ class Screened(unittest.TestCase):
         self.assertFalse(check.glob_match("docs/ops/x.md", "ops/*"))
 
 
+class FakeGitHub:
+    """Records which refs check_pr reads; the live PR head ("LIVE") has moved past the event's ("EVT")."""
+
+    def __init__(self, files, contents=None):
+        self.files, self.contents = files, contents or {}
+        self.urls, self.compared, self.refs = [], [], []
+
+    def api(self, url):
+        self.urls.append(url)
+        assert url == "/pulls/7", url
+        return {"body": "", "labels": [], "head": {"sha": "LIVE", "ref": "archon/x"},
+                "base": {"sha": "B0"}, "user": {"login": "u"}}
+
+    def closing_issues(self, pr, body):
+        return []
+
+    def compare(self, base, head):
+        self.compared.append((base, head))
+        return "MB", self.files
+
+    def content(self, path, ref):
+        self.refs.append(ref)
+        return self.contents.get((path, ref))
+
+
+class CheckPr(unittest.TestCase):
+    def test_list_and_contents_come_from_the_event_shas(self):
+        gh = FakeGitHub([f("package.json", "modified", added('"left-pad": "1"'))], {
+            ("package.json", "MB"): '{"dependencies": {}}',
+            ("package.json", "EVT"): '{"dependencies": {"left-pad": "1"}}',
+        })
+        code, problems, _ = check.check_pr(gh, 7, POLICY, head_sha="EVT", base_sha="B0")
+        self.assertEqual(code, 1)
+        self.assertIn("adds new dependencies", " ".join(problems))
+        self.assertEqual(gh.compared, [("B0", "EVT")])
+        self.assertEqual(sorted(gh.refs), ["EVT", "MB"])
+        self.assertFalse([u for u in gh.urls if "/files" in u])
+
+    def test_a_comparison_at_the_file_cap_fails_closed(self):
+        gh = FakeGitHub([f("public/x%d.css" % i, "modified", added("a{}")) for i in range(check.COMPARE_FILE_CAP)])
+        code, problems, _ = check.check_pr(gh, 7, POLICY, head_sha="EVT", base_sha="B0")
+        self.assertEqual(code, 1)
+        self.assertIn("the most the API returns", " ".join(problems))
+
+
 if __name__ == "__main__":
     unittest.main()
