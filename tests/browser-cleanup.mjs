@@ -1,11 +1,13 @@
-// Checks that tests/browser.mjs cleans up when it is interrupted (Ctrl-C, or CI cancelling a run):
-// Chrome's whole process group is killed, its profile directory removed, and the script still dies
+// Checks that tests/browser.mjs cleans up Chrome: when a run ends on its own (here because Chrome
+// exits early or is missing) and when it is interrupted (Ctrl-C, or CI cancelling a run), Chrome's
+// whole process group is killed and its profile directory removed; an interrupted run still dies
 // of the signal. A stub stands in for Chrome, so this needs no browser. Usage: node tests/browser-cleanup.mjs
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CLEANUP_SIGNALS, stopChromeOrdered } from './browser.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -18,11 +20,16 @@ for a; do case "$a" in --user-data-dir=*) dir="\${a#--user-data-dir=}";; esac; d
 mkdir -p "$dir/Default" && echo x > "$dir/Default/Preferences"
 sleep 60 &
 echo "$$ $! $dir" > "$STUB_INFO.tmp" && mv "$STUB_INFO.tmp" "$STUB_INFO"
+[ -n "$STUB_EXIT" ] && exit 0
 wait
 `);
 chmodSync(stub, 0o755);
 
+const browserTest = fileURLToPath(new URL('./browser.mjs', import.meta.url));
 const failures = [];
+const removeDir = (dir, what) => {
+  try { rmSync(dir, { recursive: true, force: true }); } catch (e) { failures.push(`${what}: could not remove ${dir}: ${e.message}`); }
+};
 
 // Unit test: stopChromeOrdered must not remove the profile before Chrome's exit is observed
 // (the ordering a mutation of tests/browser.mjs's stopChrome could silently drop).
@@ -42,10 +49,31 @@ const failures = [];
   if (calls.join(',') !== 'kill,remove') failures.push(`stopChromeOrdered: calls were ${calls.join(',') || '(none)'}, expected kill,remove`);
 }
 
+// Runs that end on their own go through the finally block. TMPDIR points at a fresh directory, so
+// any profile left behind shows up there, even one whose path the stub never got to report.
+for (const [name, bin, env] of [['Chrome exits early', stub, { STUB_EXIT: '1' }], ['Chrome is missing', join(work, 'missing'), {}]]) {
+  const tmp = mkdtempSync(join(work, 'tmp-'));
+  const info = join(work, `${name.replaceAll(' ', '-')}.info`);
+  const test = spawn(process.execPath, [browserTest], {
+    stdio: 'ignore', env: { ...process.env, ...env, CHROME_BIN: bin, STUB_INFO: info, TMPDIR: tmp },
+  });
+  const timeout = new Promise((r) => setTimeout(r, 20000, null).unref());
+  const result = await Promise.race([once(test, 'exit'), timeout]);
+  if (!result) { test.kill('SIGKILL'); failures.push(`${name}: the browser test was still running after 20 s`); }
+  else if (result[0] !== 1) failures.push(`${name}: exit code ${result[0]} (signal ${result[1]}), expected 1`);
+  if (existsSync(info)) {
+    const helperPid = +readFileSync(info, 'utf8').split(' ')[1];
+    for (let i = 0; i < 20 && alive(helperPid); i++) await sleep(100);
+    if (alive(helperPid)) { failures.push(`${name}: Chrome helper (pid ${helperPid}) is still running`); try { process.kill(helperPid, 'SIGKILL'); } catch {} }
+  }
+  const left = readdirSync(tmp).filter((f) => f.startsWith('catscape-'));
+  if (left.length) failures.push(`${name}: profile directory ${left.join(', ')} was left behind`);
+}
+
 for (const sig of CLEANUP_SIGNALS) {
   const code = 128 + constants.signals[sig];
   const info = join(work, `${sig}.info`);
-  const test = spawn(process.execPath, [new URL('./browser.mjs', import.meta.url).pathname], {
+  const test = spawn(process.execPath, [browserTest], {
     stdio: 'ignore', env: { ...process.env, CHROME_BIN: stub, STUB_INFO: info },
   });
   const exited = once(test, 'exit');
@@ -59,7 +87,7 @@ for (const sig of CLEANUP_SIGNALS) {
     failures.push(`${sig}: the browser test was still running 10 s after the signal`);
     test.kill('SIGKILL');
     for (const pid of [chromePid, helperPid]) try { process.kill(+pid, 'SIGKILL'); } catch {}
-    rmSync(profileDir, { recursive: true, force: true });
+    removeDir(profileDir, sig);
     continue;
   }
   const [status, signal] = result;
@@ -70,13 +98,13 @@ for (const sig of CLEANUP_SIGNALS) {
   for (const [name, pid] of [['Chrome', chromePid], ['Chrome helper', helperPid]]) {
     if (alive(+pid)) { failures.push(`${sig}: ${name} (pid ${pid}) is still running`); try { process.kill(+pid, 'SIGKILL'); } catch {} }
   }
-  if (existsSync(profileDir)) { failures.push(`${sig}: profile directory ${profileDir} was left behind`); rmSync(profileDir, { recursive: true, force: true }); }
+  if (existsSync(profileDir)) { failures.push(`${sig}: profile directory ${profileDir} was left behind`); removeDir(profileDir, sig); }
 }
-rmSync(work, { recursive: true, force: true });
+removeDir(work, 'scratch directory');
 
 if (failures.length) {
   console.error('FAIL\n' + failures.map((f) => '  - ' + f).join('\n'));
   process.exitCode = 1;
 } else {
-  console.log('OK: on SIGINT and SIGTERM the browser test stops Chrome, removes its profile and exits with the signal');
+  console.log('OK: the browser test stops Chrome and removes its profile when it ends, and on SIGINT and SIGTERM exits with the signal');
 }

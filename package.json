@@ -4,7 +4,7 @@
   "private": true,
   "description": "Lyra's great escape: a pixel-art cat platformer, static files with no build step",
   "scripts": {
-    "test": "node tests/smoke.cjs && node tests/browser.mjs",
+    "test": "node tests/smoke.cjs && node tests/browser.mjs && node tests/browser-cleanup.mjs",
     "start": "node tests/serve.mjs 8000"
   }
 }
