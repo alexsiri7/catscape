@@ -80,8 +80,9 @@ for (const [name, script, bin, env] of [
 
 // A profile that cannot be removed (the stub makes it read-only) must still be reported when a
 // signal ends the run. Root can remove it regardless, so that case only runs as another user.
+const checkStuckProfile = process.getuid?.() !== 0;
 const signalCases = CLEANUP_SIGNALS.map((sig) => [sig, sig, false]);
-if (process.getuid?.() !== 0) signalCases.push(['SIGTERM with a stuck profile', 'SIGTERM', true]);
+if (checkStuckProfile) signalCases.push(['SIGTERM with a stuck profile', 'SIGTERM', true]);
 for (const [name, sig, lock] of signalCases) {
   const code = 128 + constants.signals[sig];
   const info = join(work, `${name.replaceAll(' ', '-')}.info`);
@@ -127,5 +128,6 @@ if (failures.length) {
   console.error('FAIL\n' + failures.map((f) => '  - ' + f).join('\n'));
   process.exitCode = 1;
 } else {
-  console.log('OK: the browser test stops Chrome and removes its profile when it ends, and on SIGINT and SIGTERM exits with the signal, reporting a profile it could not remove');
+  console.log('OK: the browser test stops Chrome and removes its profile when it ends, and on SIGINT and SIGTERM exits with the signal'
+    + (checkStuckProfile ? ', reporting a profile it could not remove' : ' (not checked as root: reporting a profile it could not remove)'));
 }
