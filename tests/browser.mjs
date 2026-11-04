@@ -15,6 +15,15 @@ const shotDir = process.argv[2];
 let url = process.argv[3];
 const chromeBin = process.env.CHROME_BIN || 'google-chrome';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let evalJs; // assigned once Runtime.evaluate is wired up below
+const waitFor = async (expr, ms, what) => {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (await evalJs(expr)) return;
+    await sleep(100);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+};
 const problems = [];
 
 let server;
@@ -77,7 +86,7 @@ try {
   const send = (method, params = {}) => new Promise((r) => {
     const mid = ++id; pending.set(mid, r); ws.send(JSON.stringify({ id: mid, method, params }));
   });
-  const evalJs = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
+  evalJs = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
   const shot = async (name) => {
     if (!shotDir) return;
     mkdirSync(shotDir, { recursive: true });
@@ -98,7 +107,12 @@ try {
     document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(e.violatedDirective + ' blocked ' + (e.blockedURI || 'inline')));` });
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await send('Page.navigate', { url });
-  await sleep(3000);
+  await waitFor(`(() => {
+    const c = document.getElementById('game'), g = c && c.getContext('2d'), seen = new Set();
+    if (g && c.width) { const d = g.getImageData(0, 0, c.width, c.height).data;
+      for (let i = 0; i < d.length; i += 4 * 97) seen.add((d[i] << 16) | (d[i+1] << 8) | d[i+2]); }
+    return seen.size >= 3;
+  })()`, 15000, 'the canvas to render at least 3 colours');
 
   const info = await evalJs(`(async () => {
     await document.fonts.ready;
@@ -137,7 +151,7 @@ try {
       screenOrientation: { type: angle ? 'landscapePrimary' : 'portraitPrimary', angle } });
     await send('Emulation.resetPageScaleFactor');
     await send('Page.reload');
-    await sleep(2000);
+    await waitFor(`document.readyState === 'complete' && document.querySelectorAll('#pad button').length === 5`, 15000, 'the page to reload');
     const pad = await evalJs(`(() => {
       const box = (el) => { const r = el.getBoundingClientRect(); return { k: el.dataset.k, l: r.left, t: r.top, r: r.right, b: r.bottom }; };
       return { canvas: box(document.getElementById('game')), buttons: [...document.querySelectorAll('#pad button')].map(box),

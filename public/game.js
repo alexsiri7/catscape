@@ -1760,6 +1760,7 @@ if (globalThis.__CATSCAPE_TEST__) {
   Object.defineProperties(globalThis.__CATSCAPE_TEST__, Object.getOwnPropertyDescriptors({
     update, render, press, release, newGame, enterRoom, ROOM_IDS,
     get state(){ return state; }, get player(){ return player; }, get cur(){ return cur; },
+    get frame(){ return frame; },
     get objs(){ return objs; }, get gateOpen(){ return gateOpen; }, get thoughts(){ return thoughts; },
     get hint(){ return { ...hintFor(cur.id), step: nextStep().key, auto: { ...autoCount }, idleT }; },
     get deaths(){ return deaths; }, get story(){ return { heatingOn, valveOpen, heat, windowOpen, netHits, netDown, human: cur && cur.human && cur.human.state }; },
