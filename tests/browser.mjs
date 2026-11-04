@@ -11,7 +11,22 @@ import { once } from 'node:events';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
+// The signals this script cleans up Chrome on: tests/browser-cleanup.mjs imports this
+// instead of re-stating it, so a signal added here is automatically covered there too.
+export const CLEANUP_SIGNALS = ['SIGINT', 'SIGTERM'];
+
+// The kill-group -> wait-for-exit -> remove-profile ordering, as a pure function so a unit
+// test can supply a controllable `exited` promise and a spied `removeProfile` and assert
+// the removal never runs before `exited` settles.
+export async function stopChromeOrdered({ killGroup, exited, removeProfile }) {
+  try { killGroup(); } catch {}
+  await exited;
+  removeProfile();
+}
+
+async function main() {
 const shotDir = process.argv[2];
 let url = process.argv[3];
 const chromeBin = process.env.CHROME_BIN || 'google-chrome';
@@ -48,13 +63,13 @@ const chrome = spawn(chromeBin, [
 ], { stdio: 'ignore', detached: true });
 const chromeExited = once(chrome, 'exit');
 // Kill Chrome's whole process group: its helpers outlive the main process and keep writing to the profile.
-async function stopChrome() {
-  try { process.kill(-chrome.pid, 'SIGKILL'); } catch {}
-  await chromeExited;
-  rmSync(profileDir, { recursive: true, force: true, maxRetries: 5 });
-}
+const stopChrome = () => stopChromeOrdered({
+  killGroup: () => process.kill(-chrome.pid, 'SIGKILL'),
+  exited: chromeExited,
+  removeProfile: () => rmSync(profileDir, { recursive: true, force: true, maxRetries: 5 }),
+});
 // Chrome is in its own process group, so a Ctrl-C no longer reaches it: stop it, then die of the signal as before.
-for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, async () => { await stopChrome(); process.kill(process.pid, sig); });
+for (const sig of CLEANUP_SIGNALS) process.once(sig, async () => { await stopChrome(); process.kill(process.pid, sig); });
 
 let ws;
 try {
@@ -196,4 +211,11 @@ if (problems.length) {
   process.exitCode = 1;
 } else {
   console.log('OK: headers set, repo files not served, canvas rendered, fonts loaded, no JS errors or CSP violations, touch pad clear of the canvas');
+}
+}
+
+// Only run the test when this file is the entry point, so another script can import
+// CLEANUP_SIGNALS/stopChromeOrdered without triggering a real run.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
 }

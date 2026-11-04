@@ -4,8 +4,9 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { CLEANUP_SIGNALS, stopChromeOrdered } from './browser.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -22,7 +23,27 @@ wait
 chmodSync(stub, 0o755);
 
 const failures = [];
-for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+
+// Unit test: stopChromeOrdered must not remove the profile before Chrome's exit is observed
+// (the ordering a mutation of tests/browser.mjs's stopChrome could silently drop).
+{
+  let resolveExited;
+  const exited = new Promise((r) => { resolveExited = r; });
+  const calls = [];
+  const done = stopChromeOrdered({
+    killGroup: () => calls.push('kill'),
+    exited,
+    removeProfile: () => calls.push('remove'),
+  });
+  await sleep(50);
+  if (calls.includes('remove')) failures.push('stopChromeOrdered: removeProfile ran before the exited promise resolved');
+  resolveExited();
+  await done;
+  if (calls.join(',') !== 'kill,remove') failures.push(`stopChromeOrdered: calls were ${calls.join(',') || '(none)'}, expected kill,remove`);
+}
+
+for (const sig of CLEANUP_SIGNALS) {
+  const code = 128 + constants.signals[sig];
   const info = join(work, `${sig}.info`);
   const test = spawn(process.execPath, [new URL('./browser.mjs', import.meta.url).pathname], {
     stdio: 'ignore', env: { ...process.env, CHROME_BIN: stub, STUB_INFO: info },
@@ -42,12 +63,12 @@ for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
     continue;
   }
   const [status, signal] = result;
-  const exitCode = status ?? { SIGINT: 130, SIGTERM: 143 }[signal];
+  const exitCode = status ?? 128 + constants.signals[signal];
   if (exitCode !== code) failures.push(`${sig}: exit code ${exitCode}, expected ${code}`);
   // The orphaned helper is reaped by init, which can take a moment.
   for (let i = 0; i < 20 && (alive(+chromePid) || alive(+helperPid)); i++) await sleep(100);
   for (const [name, pid] of [['Chrome', chromePid], ['Chrome helper', helperPid]]) {
-    if (alive(+pid)) { failures.push(`${sig}: ${name} (pid ${pid}) is still running`); process.kill(+pid, 'SIGKILL'); }
+    if (alive(+pid)) { failures.push(`${sig}: ${name} (pid ${pid}) is still running`); try { process.kill(+pid, 'SIGKILL'); } catch {} }
   }
   if (existsSync(profileDir)) { failures.push(`${sig}: profile directory ${profileDir} was left behind`); rmSync(profileDir, { recursive: true, force: true }); }
 }
