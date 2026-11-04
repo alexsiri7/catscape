@@ -84,7 +84,15 @@ const stopChrome = () => stopChromeOrdered({
   },
 });
 // Chrome is in its own process group, so a Ctrl-C no longer reaches it: stop it, then die of the signal as before.
-for (const sig of CLEANUP_SIGNALS) process.once(sig, async () => { await stopChrome(); process.kill(process.pid, sig); });
+// Dying skips the FAIL report below, so print anything the cleanup itself reported first.
+for (const sig of CLEANUP_SIGNALS) {
+  process.once(sig, async () => {
+    const reported = problems.length;
+    await stopChrome();
+    for (const p of problems.slice(reported)) console.error(p);
+    process.kill(process.pid, sig);
+  });
+}
 
 let ws;
 try {
