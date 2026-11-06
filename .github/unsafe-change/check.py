@@ -29,7 +29,8 @@ PRs that close no screened-only issue pass at once ("not applicable"), unless
 the PR is itself factory output (screened_branches / screened_authors)
 without the owner's approved_label, in which case it is still judged.
 
-Usage (CI): GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo PR_NUMBER=n check.py
+Usage (CI): GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo PR_NUMBER=n \
+            HEAD_SHA=... BASE_SHA=... check.py
 Dry run:    check.py --dry-run [--policy FILE] PR... (uses `gh auth token`,
             treats every PR as screened; prints the verdict per PR)
 """
@@ -57,6 +58,8 @@ CLOSING_RE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b
 
 MANIFESTS = ("Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pubspec.yaml")
 REQUIREMENTS_RE = re.compile(r"requirements[^/]*\.txt$")
+# GitHub's "Compare two commits" returns at most 300 changed files, unpaginated.
+COMPARE_FILE_CAP = 300
 
 
 def load_policy(path: str = POLICY_PATH) -> dict:
@@ -75,7 +78,7 @@ def glob_match(path: str, glob: str) -> bool:
 
 
 def _patch_added(patch: str | None) -> list[str]:
-    # The pulls/files API patch has no ---/+++ header, so every "+" line is an added line.
+    # The compare API patch has no ---/+++ header, so every "+" line is an added line.
     return [l[1:] for l in (patch or "").splitlines() if l.startswith("+")]
 
 
@@ -324,7 +327,7 @@ def evaluate(files: list[dict], policy: dict, fetch=None) -> list[str]:
     """Problems with the PR's files (empty = pass).
 
     Each file: {filename, status, patch?, previous_filename?} as the GitHub
-    pulls/files API returns them. fetch(path, "base"|"head") returns the
+    compare API returns them. fetch(path, "base"|"head") returns the
     file's text at that side of the PR, or None if it does not exist there;
     it is called for dependency manifests, and for files a pattern must scan
     whose patch the API left out. It may raise: that fails closed.
@@ -434,14 +437,11 @@ class GitHub:
                 return None
             raise
 
-    def pr_files(self, pr: int) -> list[dict]:
-        files, page = [], 1
-        while True:
-            batch = self.api("/pulls/%d/files?per_page=100&page=%d" % (pr, page))
-            files += batch
-            if len(batch) < 100:
-                return files
-            page += 1
+    def compare(self, base: str, head: str) -> tuple[str, list[dict]]:
+        """(merge-base sha, changed files) of base...head. No paging parameters:
+        the files list is not paginated and holds at most COMPARE_FILE_CAP files."""
+        c = self.api("/compare/%s...%s" % (base, head))
+        return c["merge_base_commit"]["sha"], c["files"]
 
     def closing_issues(self, pr: int, body: str) -> list[dict]:
         owner, name = self.repo.split("/", 1)
@@ -455,23 +455,42 @@ class GitHub:
         return [{"number": n, "labels": [l["name"] for l in self.api("/issues/%d" % n).get("labels", [])]}
                 for n in sorted(numbers)]
 
-def check_pr(gh: GitHub, pr: int, policy: dict, force: bool = False) -> tuple[int, list[str], str]:
+def check_pr(gh: GitHub, pr: int, policy: dict, force: bool = False,
+             head_sha: str | None = None, base_sha: str | None = None) -> tuple[int, list[str], str]:
     """(exit code, problems, summary line)."""
     pull = gh.api("/pulls/%d" % pr)
     nums = screened(gh.closing_issues(pr, pull.get("body") or ""), policy)
     if not force and not applies(pull, nums, policy):
         return 0, [], ("unsafe-change: not applicable (the PR closes no issue that only "
                        "automated screening vetted and is not factory output)")
-    files = gh.pr_files(pr)
-    shas = {"base": pull["base"]["sha"], "head": pull["head"]["sha"]}
+    # The file list, its patches and the contents all come from fixed commits
+    # (the event's, in CI), so a push during the run cannot mix two states.
+    head = head_sha or pull["head"]["sha"]
+    merge_base, files = gh.compare(base_sha or pull["base"]["sha"], head)
+    shas = {"base": merge_base, "head": head}
     problems = []
-    if len(files) < pull.get("changed_files", 0):
-        problems.append("the API listed %d of %d changed files" % (len(files), pull["changed_files"]))
+    if len(files) >= COMPARE_FILE_CAP:
+        problems.append("the comparison lists %d files, the most the API returns; "
+                        "too many to check at one SHA" % len(files))
     problems += evaluate(files, policy, lambda path, side: gh.content(path, shas[side]))
     closes = ", ".join("#%d" % n for n in nums) or ("(none; forced)" if force else "(none; factory branch/author)")
     if problems:
         return 1, problems, "unsafe-change: FAILED (closes %s):" % closes
     return 0, [], "unsafe-change: ok — %d file(s), nothing on the denylist (closes %s)" % (len(files), closes)
+
+
+def dry_run(gh: GitHub, prs: list[str], policy: dict) -> None:
+    held = 0
+    for n in prs:
+        try:
+            code, problems, _ = check_pr(gh, int(n), policy, force=True)
+        except Exception as e:  # one unreadable PR still leaves a verdict for the rest
+            code, problems = 1, ["could not be checked: %s: %s" % (type(e).__name__, e)]
+        held += code
+        print("#%s %s" % (n, "HOLD" if code else "pass"))
+        for p in problems:
+            print("    - " + p)
+    print("%d of %d would be held" % (held, len(prs)))
 
 
 def main(argv: list[str]) -> int:
@@ -485,18 +504,11 @@ def main(argv: list[str]) -> int:
         repo = os.environ.get("GITHUB_REPOSITORY") or subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
             capture_output=True, text=True, check=True).stdout.strip()
-        gh = GitHub(repo, token)
-        held = 0
-        for n in args:
-            code, problems, summary = check_pr(gh, int(n), policy, force=True)
-            held += code
-            print("#%s %s" % (n, "HOLD" if code else "pass"))
-            for p in problems:
-                print("    - " + p)
-        print("%d of %d would be held" % (held, len(args)))
+        dry_run(GitHub(repo, token), args, policy)
         return 0
     gh = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
-    code, problems, summary = check_pr(gh, int(os.environ["PR_NUMBER"]), load_policy())
+    code, problems, summary = check_pr(gh, int(os.environ["PR_NUMBER"]), load_policy(),
+                                     head_sha=os.environ["HEAD_SHA"], base_sha=os.environ["BASE_SHA"])
     print(summary)
     for p in problems:
         print("  - " + p)

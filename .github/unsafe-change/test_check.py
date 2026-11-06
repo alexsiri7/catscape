@@ -1,5 +1,7 @@
 """Unit tests for the unsafe-change check (run: python3 -m unittest discover -s .github/unsafe-change)."""
 
+import contextlib
+import io
 import unittest
 
 import check
@@ -261,6 +263,89 @@ class Screened(unittest.TestCase):
         self.assertTrue(check.glob_match(".github/workflows/x.yml", ".github/*"))
         self.assertFalse(check.glob_match("docs/ops/x.md", "ops/*"))
 
+
+class FakeGitHub:
+    """Records which refs check_pr reads; every read of the live PR sees a head ("LIVEn") past the event's ("EVT")."""
+
+    def __init__(self, files, contents=None):
+        self.files, self.contents = files, contents or {}
+        self.urls, self.compared, self.refs = [], [], []
+
+    def api(self, url):
+        self.urls.append(url)
+        assert url == "/pulls/7", url
+        n = len(self.urls)  # each read of the pull sees a newer push
+        return {"body": "", "labels": [], "head": {"sha": "LIVE%d" % n, "ref": "archon/x"},
+                "base": {"sha": "B%d" % n}, "user": {"login": "u"}}
+
+    def closing_issues(self, pr, body):
+        return []
+
+    def compare(self, base, head):
+        self.compared.append((base, head))
+        return "MB", self.files
+
+    def content(self, path, ref):
+        self.refs.append(ref)
+        return self.contents.get((path, ref))
+
+
+class CheckPr(unittest.TestCase):
+    def test_list_and_contents_come_from_the_event_shas(self):
+        gh = FakeGitHub([f("package.json", "modified", added('"left-pad": "1"'))], {
+            ("package.json", "MB"): '{"dependencies": {}}',
+            ("package.json", "EVT"): '{"dependencies": {"left-pad": "1"}}',
+        })
+        code, problems, _ = check.check_pr(gh, 7, POLICY, head_sha="EVT", base_sha="B0")
+        self.assertEqual(code, 1)
+        self.assertIn("adds new dependencies", " ".join(problems))
+        self.assertEqual(gh.compared, [("B0", "EVT")])
+        self.assertEqual(sorted(gh.refs), ["EVT", "MB"])
+        self.assertFalse([u for u in gh.urls if "/files" in u])
+
+    def test_a_comparison_at_the_file_cap_fails_closed(self):
+        gh = FakeGitHub([f("public/x%d.css" % i, "modified", added("a{}")) for i in range(check.COMPARE_FILE_CAP)])
+        code, problems, _ = check.check_pr(gh, 7, POLICY, head_sha="EVT", base_sha="B0")
+        self.assertEqual(code, 1)
+        self.assertIn("the most the API returns", " ".join(problems))
+
+    def test_without_event_shas_one_read_of_the_pull_pins_list_and_contents(self):
+        gh = FakeGitHub([f("package.json", "modified", added('"left-pad": "1"'))])
+        check.check_pr(gh, 7, POLICY, force=True)
+        self.assertEqual(gh.compared, [("B1", "LIVE1")])
+        self.assertEqual(sorted(gh.refs), ["LIVE1", "MB"])
+
+    def test_a_comparison_without_a_file_list_raises(self):
+        gh = check.GitHub("o/r", "t")
+        gh.api = lambda url: {"merge_base_commit": {"sha": "MB"}}
+        with self.assertRaises(KeyError):
+            gh.compare("B0", "EVT")
+
+    def test_a_dry_run_holds_a_pr_it_cannot_check_and_goes_on(self):
+        # Two distinct fault shapes, so narrowing dry_run's catch-all to either one fails this test.
+        class FirstCompareHasNoFileList(FakeGitHub):  # compare returns None: TypeError at len(files)
+            def compare(self, base, head):
+                if not self.compared:
+                    self.compared.append((base, head))
+                    return "MB", None
+                return super().compare(base, head)
+
+        class FirstCompareOmitsFiles(FakeGitHub):  # the API's reply lacks "files": KeyError in GitHub.compare
+            def compare(self, base, head):
+                if not self.compared:
+                    self.compared.append((base, head))
+                    raise KeyError("files")
+                return super().compare(base, head)
+
+        for fake, fault in ((FirstCompareHasNoFileList, "TypeError: object of type 'NoneType' has no len()"),
+                            (FirstCompareOmitsFiles, "KeyError: 'files'")):
+            with self.subTest(fault=fault):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    check.dry_run(fake([]), ["7", "7"], POLICY)
+                self.assertEqual(out.getvalue().splitlines(), [
+                    "#7 HOLD", "    - could not be checked: " + fault,
+                    "#7 pass", "1 of 2 would be held"])
 
 if __name__ == "__main__":
     unittest.main()

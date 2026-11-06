@@ -6,7 +6,9 @@
 # pull_request_target on purpose: the checker and the policy come from the
 # base branch, so a PR cannot edit the check that judges it. The PR's code is
 # never checked out or run; the checker reads the file list, patches and
-# manifest contents from the API as data. Read-only token.
+# manifest contents from the API as data. Read-only token. It judges the
+# event's head commit: the file list comes from the compare API pinned to the
+# event's base and head SHAs, and the contents from those same commits.
 name: unsafe-change
 
 on:
@@ -41,4 +43,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python3 .github/unsafe-change/check.py
