@@ -2,7 +2,7 @@
 
 A pixel-art cinematic platformer that runs in the browser. Lyra, an indoor cat, watches a bird fly away from the bedroom window and sets out across the house to get the hooman to open the big window in the study.
 
-It's a static page in `public/` (`index.html`, `game.js`, `style.css`) with no build step and no dependencies (fonts load from Google Fonts). It is served by Cloudflare Pages at https://catscape.interstellarai.net, with the security headers and CSP in `public/_headers`.
+It's a static page in `public/` (`index.html`, `game.js`, `style.css`) with no build step and no dependencies (the fonts are self-hosted in `public/fonts/`). It is served by Cloudflare Pages at https://catscape.interstellarai.net, with the security headers and CSP in `public/_headers`.
 
 ## Play
 
