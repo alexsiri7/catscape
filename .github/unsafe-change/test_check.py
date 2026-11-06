@@ -322,19 +322,30 @@ class CheckPr(unittest.TestCase):
             gh.compare("B0", "EVT")
 
     def test_a_dry_run_holds_a_pr_it_cannot_check_and_goes_on(self):
-        class FirstCompareHasNoFileList(FakeGitHub):
+        # Two distinct fault shapes, so narrowing dry_run's catch-all to either one fails this test.
+        class FirstCompareHasNoFileList(FakeGitHub):  # compare returns None: TypeError at len(files)
             def compare(self, base, head):
                 if not self.compared:
                     self.compared.append((base, head))
                     return "MB", None
                 return super().compare(base, head)
 
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            check.dry_run(FirstCompareHasNoFileList([]), ["7", "7"], POLICY)
-        self.assertEqual(out.getvalue().splitlines(), [
-            "#7 HOLD", "    - could not be checked: TypeError: object of type 'NoneType' has no len()",
-            "#7 pass", "1 of 2 would be held"])
+        class FirstCompareOmitsFiles(FakeGitHub):  # the API's reply lacks "files": KeyError in GitHub.compare
+            def compare(self, base, head):
+                if not self.compared:
+                    self.compared.append((base, head))
+                    raise KeyError("files")
+                return super().compare(base, head)
+
+        for fake, fault in ((FirstCompareHasNoFileList, "TypeError: object of type 'NoneType' has no len()"),
+                            (FirstCompareOmitsFiles, "KeyError: 'files'")):
+            with self.subTest(fault=fault):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    check.dry_run(fake([]), ["7", "7"], POLICY)
+                self.assertEqual(out.getvalue().splitlines(), [
+                    "#7 HOLD", "    - could not be checked: " + fault,
+                    "#7 pass", "1 of 2 would be held"])
 
 if __name__ == "__main__":
     unittest.main()
