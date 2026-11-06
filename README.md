@@ -37,8 +37,11 @@ Eight rooms on two floors: Bathroom, Bedroom, Landing and Study upstairs; Kitche
 ```sh
 node tests/smoke.cjs                    # the game logic, headless in Node
 node tests/browser.mjs [screenshot-dir] # the real page in headless Chrome
+node tests/browser-cleanup.mjs          # browser.mjs stops Chrome and removes its profile
 ```
 
 `smoke.cjs` runs `public/game.js` headlessly in Node (stubbed canvas) and plays the key routes through every puzzle, plus a random-input fuzz of every room.
 
 `browser.mjs` serves `public/` with the `_headers` rules (like Cloudflare Pages) and loads the game in headless Chrome (Node >= 22, `CHROME_BIN` defaults to `google-chrome`). It fails on missing security headers, repo files being served, JS errors, CSP violations, fonts not loading or a blank canvas, and saves `title.png`, `playing.png` and `hint.png`. Pass a URL as the second argument to test a deployment, e.g. a Pages preview.
+
+`browser-cleanup.mjs` runs `browser.mjs` against a stub Chrome and checks that it kills Chrome's process group and removes its temporary profile directory, both when a run ends and when it is interrupted (SIGINT/SIGTERM).
