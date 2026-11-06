@@ -433,4 +433,11 @@ test('fuzz: random input in every room never throws and keeps state sane', () =>
   }
 });
 
-console.log(`\n${passed} passed`);
+(async () => {
+  const { server } = await import('./serve.mjs');
+  const get = url => { const res = { setHeader() {}, writeHead(s) { this.status = s; }, end() {} }; server.emit('request', { url, method: 'GET' }, res); return res.status; };
+  assert.equal(get('/%'), 404);
+  assert.equal(get('/'), 200);
+  passed++; console.log('ok - test server answers a malformed percent-escape with 404 instead of crashing');
+  console.log(`\n${passed} passed`);
+})().catch(e => { console.error(e); process.exit(1); });
