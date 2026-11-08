@@ -7,10 +7,26 @@
 // or (on touch phones in portrait and landscape) a pad button that is under 56 CSS px
 // or overlaps the canvas.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { once } from 'node:events';
+import { mkdtempSync, writeFileSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
+// The signals this script cleans up Chrome on: tests/browser-cleanup.mjs imports this
+// instead of re-stating it, so a signal added here is automatically covered there too.
+export const CLEANUP_SIGNALS = ['SIGINT', 'SIGTERM'];
+
+// The kill-group -> wait-for-exit -> remove-profile ordering, as a pure function so a unit
+// test can supply a controllable `exited` promise and a spied `removeProfile` and assert
+// the removal never runs before `exited` settles.
+export async function stopChromeOrdered({ killGroup, exited, removeProfile }) {
+  try { killGroup(); } catch {}
+  await exited;
+  removeProfile();
+}
+
+async function main() {
 const shotDir = process.argv[2];
 let url = process.argv[3];
 const chromeBin = process.env.CHROME_BIN || 'google-chrome';
@@ -49,15 +65,39 @@ for (const p of ['tests/smoke.cjs', 'package.json', 'CLAUDE.md', 'README.md', '.
 
 // 2. The page in headless Chrome at phone size.
 const port = 9300 + Math.floor(Math.random() * 500);
+const profileDir = mkdtempSync(join(tmpdir(), 'catscape-'));
 const chrome = spawn(chromeBin, [
-  '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'catscape-'))}`,
+  '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`,
   '--no-first-run', '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--window-size=390,844', 'about:blank',
-], { stdio: 'ignore' });
+], { stdio: 'ignore', detached: true });
+let chromeRunning = true;
+const chromeExited = once(chrome, 'exit')
+  .catch((e) => { problems.push(`could not start Chrome: ${e.message}`); })
+  .finally(() => { chromeRunning = false; });
+// Kill Chrome's whole process group: its helpers outlive the main process and keep writing to the profile.
+const stopChrome = () => stopChromeOrdered({
+  killGroup: () => process.kill(-chrome.pid, 'SIGKILL'),
+  exited: chromeExited,
+  removeProfile: () => {
+    try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 5 }); }
+    catch (e) { problems.push(`could not remove the Chrome profile: ${e.message}`); }
+  },
+});
+// Chrome is in its own process group, so a Ctrl-C no longer reaches it: stop it, then die of the signal as before.
+// Dying skips the FAIL report below, so print anything the cleanup itself reported first.
+for (const sig of CLEANUP_SIGNALS) {
+  process.once(sig, async () => {
+    const reported = problems.length;
+    await stopChrome();
+    for (const p of problems.slice(reported)) console.error(p);
+    process.kill(process.pid, sig);
+  });
+}
 
 let ws;
 try {
   let target;
-  for (let i = 0; i < 150 && !target; i++) { // up to 30 s: a cold CI runner can be slow
+  for (let i = 0; i < 150 && !target && chromeRunning; i++) { // up to 30 s: a cold CI runner can be slow
     await sleep(200);
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -190,8 +230,8 @@ try {
   problems.push(e.message);
 } finally {
   try { ws && ws.close(); } catch {}
-  chrome.kill('SIGKILL');
   server && server.close();
+  await stopChrome();
 }
 
 if (problems.length) {
@@ -199,4 +239,11 @@ if (problems.length) {
   process.exitCode = 1;
 } else {
   console.log('OK: headers set, repo files not served, canvas rendered, fonts loaded, no JS errors or CSP violations, touch pad clear of the canvas');
+}
+}
+
+// Only run the test when this file is the entry point, so another script can import
+// CLEANUP_SIGNALS/stopChromeOrdered without triggering a real run.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  await main();
 }
